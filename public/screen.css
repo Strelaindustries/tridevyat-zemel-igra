@@ -1,0 +1,302 @@
+/* Общий экран: полоса с выключателями, показ хода и итоги партии. */
+
+/* Полоса */
+#turnBox { gap: 10px; }
+#turnLabel { font-variant-numeric: lining-nums; }
+.switch { font-size: 17px; padding: 5px 12px; white-space: nowrap; color: var(--dim); border-color: #4a4537; text-decoration: line-through; }
+.switch.on { color: var(--yellow); border-color: var(--yellow); text-decoration: none; }
+/* На узком экране кнопки ужимаются, чтобы хватило места статусам царств. */
+@media (max-width: 1500px) {
+  #turnBox { gap: 8px; }
+  #turnLabel { font-size: 18px; letter-spacing: .06em; }
+  #settingsBtn, .switch { font-size: 15px; padding: 4px 8px; letter-spacing: .04em; }
+}
+
+/* Кружок цвета царства стоит рядом с его именем везде на общем экране. */
+.dot { display: inline-block; flex: none; width: .62em; height: .62em; margin-right: .38em; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255, 255, 255, .4); }
+/* Полосе нужно место под полное имя царства. */
+.realm span { max-width: 12em; }
+/* Пять царств на узком экране: цвет даёт кружок, знамя уступает место имени. */
+@media (max-width: 1500px) {
+  #realms { gap: 14px; }
+  .realm canvas { display: none; }
+  .realm { letter-spacing: .02em; }
+  .realm span { max-width: 12.6em; }
+  .realm small { max-width: 8.5em; }   /* длинный статус не отнимает место у имён */
+}
+/* Шесть и семь царств: знамя уступает место имени, длинный статус обрезается. */
+#realms.many { gap: 14px; }
+#realms.many .realm canvas { display: none; }
+#realms.many .realm { letter-spacing: .02em; }
+#realms.many .realm small { max-width: 8.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#seats li { display: flex; align-items: center; justify-content: center; }
+
+#caption span { display: inline-block; animation: captionIn .35s ease both; }
+
+/* Отсчёт «20 секунд последним» над полосой, по центру. Последние пять секунд красные. */
+#hurryClock { position: fixed; left: 50%; bottom: 7.4vh; transform: translateX(-50%); z-index: 4;
+  display: flex; align-items: baseline; gap: .5em; padding: .25em .9em .35em; border-radius: 1em;
+  background: rgba(0, 0, 0, .74); border: .12em solid var(--yellow); color: var(--ink); font-size: 2.6vh; pointer-events: none; }
+#hurryClock.hidden { display: none; }
+#hurryClock b { font-size: 2.1em; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; min-width: 1.2em; text-align: center; color: var(--yellow); }
+#hurryClock span { color: var(--dim); letter-spacing: .04em; }
+#hurryClock.late { border-color: #e5483b; animation: hurryBeat 1s ease-in-out infinite; }
+#hurryClock.late b { color: #ff6a5a; }
+@keyframes hurryBeat { 50% { transform: translateX(-50%) scale(1.06); } }
+@keyframes captionIn { from { opacity: 0; transform: translateY(5px); } }
+
+/* Подпись мультика крупнее и лежит на мягкой тени, а не на полосе. */
+@media (max-width: 2200px) {
+  body.story #caption {
+    padding: 44px 24px 12px;
+    font-size: clamp(22px, 3.4vh, 40px);
+    letter-spacing: .06em;
+    white-space: normal;
+    background: linear-gradient(to top, rgba(0, 0, 0, .9), rgba(0, 0, 0, .55) 55%, rgba(0, 0, 0, 0));
+  }
+}
+
+/* Чёрный экран идёт поверх всего окна. */
+#curtain {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  background: #000;
+  opacity: 0;
+  transition: opacity .7s ease;
+}
+#curtain.on { opacity: 1; transition: opacity .5s ease; }
+#curtainText {
+  padding: 0 4vw;
+  text-align: center;
+  font-size: clamp(52px, 12.5vh, 270px);
+  letter-spacing: .05em;
+  line-height: 1.1;
+  opacity: 0;
+  transition: opacity .5s ease;
+}
+#curtain.on #curtainText { opacity: 1; }
+
+/* Слайды лежат над картой, полоса с выключателями остаётся внизу. */
+#slide {
+  position: fixed;
+  inset: 0 0 5.926vh 0;
+  z-index: 3;
+  background: #000;
+  opacity: 0;
+  transition: opacity .7s ease;
+}
+#slide.on { opacity: 1; }
+#slide.instant { transition: none; }
+#slideBox {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4.5vh 4vw;
+  transition: opacity .45s ease;
+}
+#slideBox.out { opacity: 0; }
+#slideHead { flex: none; display: flex; flex-direction: column; align-items: center; width: 100%; }
+#slideTitle { margin: 0; text-align: center; font-size: clamp(36px, 8vh, 170px); font-weight: 400; letter-spacing: .05em; line-height: 1.12; }
+#slideHint { margin-top: .35em; text-align: center; color: var(--dim); font-size: clamp(18px, 3.3vh, 72px); letter-spacing: .05em; }
+#slideHint:empty { display: none; }
+.ornament { position: relative; flex: none; width: min(46vw, 620px); height: 22px; margin: 2vh 0 2.6vh; }
+.ornament::before {
+  content: '';
+  position: absolute;
+  inset: 50% 0 auto;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--tan) 22%, var(--tan) 78%, transparent);
+}
+.ornament::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  background: #000;
+  border: 1px solid var(--yellow);
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+#slideRoom { flex: 0 1 auto; min-height: 0; width: 100%; display: flex; align-items: flex-start; justify-content: center; }
+#slideList { list-style: none; margin: 0; padding: 0; column-gap: 3.2em; letter-spacing: .03em; line-height: 1.22; }
+#slideList li {
+  display: flex;
+  align-items: center;
+  gap: .5em;
+  padding: .24em 0;
+  break-inside: avoid;
+  animation: lineIn .6s ease both;
+  animation-delay: calc(var(--i) * 55ms);
+}
+@keyframes lineIn { from { opacity: 0; transform: translateY(.35em); } }
+#slideList .marks { flex: none; display: flex; align-items: center; justify-content: flex-end; min-width: .9em; height: 1.3em; }
+#slideList.pairs .marks { min-width: 1.8em; }
+#slideList .marks canvas { width: 1.06em; height: 1.8em; margin: 0 -.08em; }
+/* Длинный список: заголовок уступает место, строки стоят плотнее. */
+.dense #slideTitle { font-size: clamp(28px, 5.4vh, 116px); }
+.dense .ornament { margin: 1vh 0 1.4vh; }
+.dense #slideList { line-height: 1.16; letter-spacing: .01em; column-gap: 2.4em; }
+.dense #slideList li { gap: .36em; padding: .07em 0; }
+.dense #slideList .marks { height: 1.1em; }
+.dense #slideList .marks canvas { width: .9em; height: 1.52em; }
+.dense #slideList.pairs .marks { min-width: 1.56em; }
+#slideList li.none { display: block; color: var(--dim); font-size: 1.1em; text-align: center; }
+
+/* Потери за ход: таблица по царствам, размеры идут от высоты окна. */
+#slideToll { width: min(100%, 1500px); font-size: clamp(16px, 3.1vh, 56px); letter-spacing: .02em; font-variant-numeric: lining-nums tabular-nums; }
+#slideToll table { width: 100%; border-collapse: collapse; }
+#slideToll th { padding: .2em .55em .35em; font-weight: 400; font-size: .72em; color: var(--dim); text-align: right; white-space: nowrap; }
+#slideToll td { padding: .34em .55em; border-top: 1px solid #2c2a22; text-align: right; }
+#slideToll th:first-child, #slideToll td:first-child { padding-left: 0; text-align: left; white-space: nowrap; }
+#slideToll td.nil { color: #4a4537; }
+#slideToll td:nth-last-child(2) { color: var(--yellow); }
+#slideToll td:last-child { width: 26%; padding-right: 0; }
+.tollBar { height: .62em; min-width: 3px; animation: tollIn .8s ease both; transform-origin: left; }
+@keyframes tollIn { from { transform: scaleX(0); } }
+
+/* Легенда партии идёт поверх всего окна, перед ходом 1. */
+#tale {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  display: grid;
+  grid-template-columns: minmax(0, 34fr) minmax(0, 66fr);
+  gap: 2vw;
+  align-items: center;
+  padding: 4vh 5vw;
+  background: #2e2a23;
+  opacity: 0;
+  transition: opacity .7s ease;
+}
+#tale.on { opacity: 1; }
+#taleHero { display: block; width: 100%; max-height: 74vh; object-fit: contain; }
+#taleMain { min-width: 0; max-height: 92vh; display: flex; flex-direction: column; align-items: flex-start; }
+#taleTitle { margin: 0; font-size: clamp(34px, 8.4vh, 170px); font-weight: 400; letter-spacing: .05em; line-height: 1.1; }
+#tale .ornament { margin: 1.6vh 0 2.2vh; }
+#taleLines { font-size: clamp(18px, 3.7vh, 74px); line-height: 1.3; letter-spacing: .02em; }
+#taleLines p { margin: 0 0 .55em; animation: lineIn .7s ease both; }
+#taleLines p.past { color: var(--dim); }
+#taleFates { font-size: clamp(16px, 3.2vh, 64px); line-height: 1.26; letter-spacing: .02em; }
+.taleFate { margin-bottom: .7em; animation: lineIn .7s ease both; }
+.taleFate b { display: block; font-weight: 400; font-size: .76em; letter-spacing: .08em; color: var(--yellow); }
+#taleSkip { position: absolute; right: 2.4vw; bottom: 2.6vh; font-size: clamp(15px, 2.4vh, 40px); padding: .3em 1em; color: var(--dim); border-color: #4a4537; }
+
+/* Итоги партии: один слайд на всё окно, размеры идут от высоты, поэтому прокрутки нет. */
+#overBox {
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 1.1vh;
+  place-items: stretch;
+  padding: 2vh 2.2vw 1.8vh;
+  background: #000;
+  text-align: left;
+  font-size: clamp(12px, 1.95vh, 44px);
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity .9s ease;
+}
+#overBox.on { opacity: 1; }
+#overBox.instant { transition: none; }
+#overHead { display: flex; align-items: center; gap: 1em; min-width: 0; }
+#overHead > div { flex: 1; min-width: 0; }
+#overBanner { flex: none; height: 5.4em; width: 3.2em; margin: -.5em -.4em -.3em -.3em; }
+#overBox h2 { margin: 0; padding: 0; font-size: 2.5em; font-weight: 400; letter-spacing: .05em; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#overWorld { margin: .2em 0 0; color: var(--dim); font-size: 1em; letter-spacing: .03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: lining-nums; }
+#overTale { margin-top: .1em; color: var(--dim); letter-spacing: .03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#overTale:empty { display: none; }
+#overBox button { flex: none; font-size: 1.15em; padding: .45em 1.3em; border-color: var(--yellow); color: var(--yellow); white-space: nowrap; }
+
+#overLegend { display: flex; flex-wrap: wrap; gap: .2em 1.7em; color: #d9d2c0; font-size: .95em; letter-spacing: .03em; }
+.legendItem { display: inline-flex; align-items: center; gap: .5em; white-space: nowrap; }
+.lineKey { flex: none; display: block; }
+
+#overCharts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 1.6vw; min-height: 0; }
+.chart { display: flex; flex-direction: column; margin: 0; min-width: 0; min-height: 0; }
+.chart figcaption { flex: none; font-size: 1.1em; letter-spacing: .05em; color: var(--ink); margin-bottom: .2em; }
+.chartRoom { position: relative; flex: 1; min-height: 0; font-size: .86em; font-variant-numeric: lining-nums tabular-nums; }
+.chartRoom > svg { position: absolute; inset: 0; display: block; overflow: hidden; }
+.chartRoom .tick { fill: var(--dim); }
+.chartRoom .grid { stroke: #24231d; stroke-width: 1; }
+.chartRoom .base { stroke: #4a4537; stroke-width: 1; }
+.chartRoom .line { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chartRoom .mark { stroke: #000; stroke-width: 2; paint-order: stroke; }
+.chartRoom .leader { stroke-width: 1; opacity: .75; }
+.chartRoom .endLabel { paint-order: stroke; stroke: #000; stroke-width: 3px; stroke-linejoin: round; }
+.chartRoom .endName { fill: #cfc8b6; }
+.chartRoom .endValue { fill: var(--ink); }
+.chartRoom .fallen .endName { fill: var(--dim); }
+.chartRoom .reveal { animation: reveal 1.3s ease-in-out both; }
+@keyframes reveal { from { width: 0; } }
+.chartRoom .hit { fill: transparent; cursor: crosshair; }
+.chartRoom .cursor { pointer-events: none; }
+.chartRoom .cursorRule { stroke: var(--dim); stroke-width: 1; }
+.chartTip {
+  position: absolute;
+  z-index: 1;
+  min-width: 8.5em;
+  padding: .4em .7em;
+  background: #0d0c09;
+  border: 1px solid #4a4537;
+  pointer-events: none;
+  letter-spacing: .02em;
+}
+.tipHead { color: var(--dim); margin-bottom: .15em; }
+.tipRow { display: grid; grid-template-columns: 2.7em auto 1fr; align-items: center; gap: .45em; white-space: nowrap; color: #cfc8b6; }
+.tipRow b { font-weight: 500; color: var(--ink); text-align: right; }
+
+#overTable { max-width: none; max-height: none; margin: 0; overflow: hidden; }
+#overTable table { width: 100%; border-collapse: collapse; font-size: min(1.95vh, 1.1vw); letter-spacing: .01em; font-variant-numeric: lining-nums tabular-nums; }
+#overTable th { max-width: none; padding: .14em .5em .2em; line-height: 1.05; font-size: .86em; color: var(--dim); vertical-align: bottom; }
+#overTable td { padding: .17em .5em; border-top: 1px solid #2c2a22; }
+#overTable td:first-child { display: table-cell; padding-left: 0; white-space: nowrap; }
+#overTable .realmCell { display: flex; align-items: center; gap: .5em; }
+#overTable th:first-child { padding-left: 0; }
+#overTable td:nth-child(2) { white-space: nowrap; }
+#overTable td canvas { width: .95em; height: 1.6em; flex: none; }
+#overTable td small { color: var(--dim); font-size: .86em; margin-left: .35em; }
+@media (max-width: 1100px) { #overTable td small { display: none; } }
+#overTable .winner td { color: var(--ink); background: rgba(233, 206, 79, .07); }
+#overTable .winner td:nth-child(2) { color: var(--yellow); }
+
+#settingsBox h2 { margin: 0 0 18px; font-weight: 500; }
+.settingsRow { display: flex; gap: 14px; align-items: center; justify-content: center; margin: 0 0 18px; font-size: 20px; }
+/* Кнопки партии живут в «Настройках», на полосе над картой остаётся одна кнопка. */
+#gameRow { padding-bottom: 18px; border-bottom: 1px solid #2c2a22; }
+#gameRow button { font-size: 17px; padding: 5px 12px; white-space: nowrap; }
+#musicVolume { width: 260px; accent-color: var(--yellow); }
+
+#howBox { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; gap: 14px; align-content: center; background: #000; }
+#howBox.hidden { display: none; }
+#howVideo { max-width: 94vw; max-height: 84vh; }
+#howBtn { margin-top: 10px; }
+#settingsBox { inset: 0; z-index: 30; }
+
+/* Союзы и войны: схема по кругу, под ней легенда, коалиции и войны словами. */
+#tiesBox { inset: 0; z-index: 30; }
+/* Окно во весь экран: заголовок, список и кнопка берут сколько нужно, схема ужимается в оставшееся место. */
+#tiesBox > div { display: flex; flex-direction: column; align-items: center; gap: 1.2vh; height: 96vh; width: 94vw; }
+#tiesBox h2 { flex: none; margin: 0; font-weight: 500; font-size: 3.4vh; letter-spacing: .06em; }
+#tiesDraw { flex: 1 1 0; min-height: 0; width: 100%; display: flex; justify-content: center; }
+#tiesDraw svg { display: block; height: 100%; width: auto; max-width: 100%; }
+#tiesList { flex: none; font-size: 2.1vh; width: min(92vw, 1800px); }
+#tiesClose { flex: none; }
+.tiesGrid { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 3em; }
+.tiesGrid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tiesGrid .wide { grid-column: 1 / -1; }
+.tiesLegend { display: flex; gap: 2em; justify-content: center; color: var(--dim); margin-bottom: .6vh; }
+.tiesLegend i { display: inline-block; width: 2em; height: .3em; margin-right: .5em; vertical-align: middle; border-radius: .2em; }
+.tiesLegend i.dash { background: repeating-linear-gradient(90deg, #a89c84 0 .5em, transparent .5em .9em); }
+.tiesRow { display: grid; grid-template-columns: 7em minmax(0, 1fr) auto; gap: 1em; align-items: center; text-align: left; padding: .25vh 0; border-top: 1px solid #2c2a22; }
+.tiesRow b { font-weight: 500; color: #8fd16a; }
+.tiesRow b.war { color: #e5483b; }
+.tiesRow small { color: var(--dim); font-size: .9em; }
+.tiesDot { display: inline-block; width: .8em; height: .8em; border-radius: 50%; margin: 0 .35em 0 .15em; vertical-align: -.05em; }
+#lobbySettings { margin-top: 10px; }

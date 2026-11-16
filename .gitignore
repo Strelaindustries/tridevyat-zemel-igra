@@ -1,0 +1,5 @@
+save/
+node_modules/
+.DS_Store
+public/voice/
+public/how-to-play.mp4

@@ -1,0 +1,239 @@
+:root {
+  --ground: #5d5d48;
+  --tan: #b49964;
+  --steel: #bdbdbd;
+  --ink: #f2efe6;
+  --dim: #a89c84;
+  --yellow: #e9ce4f;
+  --red: #b33535;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #000;
+  color: var(--ink);
+  font-family: 'Alegreya', Georgia, 'Times New Roman', serif;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+canvas { display: block; touch-action: none; }
+
+button {
+  font: inherit;
+  color: var(--ink);
+  background: #000;
+  border: 1px solid var(--dim);
+  letter-spacing: .08em;
+  cursor: pointer;
+}
+button:disabled { opacity: .4; cursor: default; }
+
+.hidden { display: none !important; }
+
+/* Общий экран */
+#stage { position: fixed; inset: 0 0 5.926vh 0; }
+#stage canvas { width: 100%; height: 100%; }
+
+#band {
+  position: fixed;
+  inset: auto 0 0 0;
+  height: 5.926vh;
+  background: #000;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 24px;
+  padding: 0 24px;
+}
+#turnBox { display: flex; align-items: center; gap: 14px; }
+#turnLabel { font-size: 20px; letter-spacing: .1em; color: var(--dim); white-space: nowrap; }
+#qrBtn, #restartBtn { font-size: 17px; padding: 5px 12px; white-space: nowrap; }
+#settingsBox, #qrBox, #restartBox, #finishBox, #tiesBox { position: fixed; inset: 0 0 5.926vh 0; display: grid; place-items: center; background: rgba(0, 0, 0, .78); text-align: center; z-index: 5; }
+#qrBig { display: block; width: min(58vh, 460px); height: min(58vh, 460px); margin: 0 auto .5em; image-rendering: pixelated; }
+#qrAddress { margin-bottom: .3em; }
+#qrClose, #restartYes, #restartNo, #finishYes, #finishNo { font-size: 20px; padding: .3em 1.2em; margin: .8em .3em 0; }
+#restartBox h2, #finishBox h2 { font-size: 40px; font-weight: 400; letter-spacing: .08em; margin: 0 0 .3em; }
+#overTable { max-width: 94vw; max-height: 62vh; overflow: auto; margin: 0 auto 14px; }
+#overTable table { border-collapse: collapse; font-size: clamp(14px, 1.3vw, 20px); letter-spacing: .03em; }
+#overTable th { font-weight: 400; color: var(--dim); padding: 6px 12px; max-width: 8em; vertical-align: bottom; }
+#overTable td { padding: 6px 12px; border-top: 1px solid #3c382c; white-space: nowrap; }
+#overTable th:nth-child(n+3), #overTable td:nth-child(n+3) { text-align: right; }
+#overTable th:nth-child(-n+2), #overTable td:nth-child(-n+2) { text-align: left; }
+#overTable td:first-child { display: flex; align-items: center; gap: 8px; }
+#overTable td canvas { width: 26px; height: 44px; }
+#overTable .winner td { color: var(--yellow); }
+#overWorld { color: var(--dim); font-size: clamp(14px, 1.2vw, 18px); letter-spacing: .04em; margin-bottom: 18px; }
+.realm .lost { color: var(--yellow); }
+#caption {
+  text-align: center;
+  font-size: 26px;
+  letter-spacing: .12em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+/* Длинная подпись с именами не влезает рядом с царствами и встаёт отдельной строкой над полосой. */
+@media (max-width: 2200px) {
+  #band { grid-template-columns: auto 1fr; gap: 16px; padding: 0 12px; }
+  #caption {
+    position: fixed;
+    inset: auto 0 5.926vh 0;
+    padding: 4px 12px;
+    font-size: 20px;
+    letter-spacing: .08em;
+    background: rgba(0, 0, 0, .72);
+    pointer-events: none;
+  }
+  #caption:empty { display: none; }
+  #realms { justify-content: flex-end; gap: 12px; min-width: 0; }
+  .realm { min-width: 0; font-size: 14px; }
+  .realm span { max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .realm small { font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (max-width: 1200px) {
+  .realm span { max-width: 6.5em; }
+  #overTable table { font-size: 13px; letter-spacing: 0; }
+  #overTable th, #overTable td { padding: 5px 6px; }
+  #overTable th { max-width: 6em; }
+  #overTable td:first-child { white-space: normal; max-width: 13em; }
+}
+#realms { display: flex; gap: 22px; }
+.realm { display: flex; align-items: center; gap: 8px; font-size: 16px; line-height: 1.15; letter-spacing: .05em; color: var(--dim); }
+.realm small { display: block; font-size: 13px; }
+.realm.active { color: var(--ink); }
+.realm.out { opacity: .35; text-decoration: line-through; }
+.realm canvas { width: 26px; height: 44px; }
+
+#lobby {
+  position: fixed;
+  inset: 0;
+  background: var(--ground);
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+#lobbyArt { position: absolute; inset: 0; width: 100%; height: 100%; }
+#lobbyBox {
+  position: relative;
+  z-index: 1;
+  align-self: center;
+  justify-self: center;
+  text-align: center;
+  width: min(760px, 92vw);
+  padding-bottom: 2vh;
+}
+#lobbyBox h1 {
+  font-size: clamp(38px, 5.6vw, 76px);
+  font-weight: 400;
+  letter-spacing: .1em;
+  margin: 0 0 .15em;
+  white-space: nowrap;
+}
+#qr { display: block; width: min(30vh, 300px); height: min(30vh, 300px); margin: .7em auto .4em; image-rendering: pixelated; }
+.address { font-size: 22px; letter-spacing: .06em; color: var(--yellow); margin: 0 0 .8em; }
+.hint { font-size: 20px; letter-spacing: .08em; color: #d9d2c0; }
+#seats { list-style: none; margin: 0 0 1em; padding: 0; font-size: 24px; letter-spacing: .06em; }
+#seats li { padding: .12em 0; }
+#seats li.off { opacity: .5; }
+.botRow { display: flex; justify-content: center; align-items: center; gap: 16px; font-size: 22px; letter-spacing: .08em; margin-bottom: 1em; }
+.botRow button { width: 42px; height: 42px; font-size: 24px; }
+#startBtn { font-size: 26px; padding: .4em 1.6em; }
+#lobbyBand { position: relative; height: 64px; padding: 0 24px; background: #000; display: grid; place-items: center; text-align: center; font-size: 20px; letter-spacing: .12em; color: var(--dim); }
+#lobbyError { color: var(--yellow); min-height: 1.4em; font-size: 20px; margin-top: .4em; }
+
+#overBox {
+  position: fixed;
+  inset: 0 0 5.926vh 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, .88);
+  text-align: center;
+}
+#overBox h2 { font-size: clamp(30px, 3.6vw, 56px); font-weight: 400; letter-spacing: .08em; margin: 0 0 .5em; padding: 0 24px; }
+#overBox button { font-size: 24px; padding: .4em 1.4em; }
+
+/* Телефон */
+#view { position: fixed; inset: 0; }
+#view canvas { width: 100%; height: 100%; }
+
+.bar { position: fixed; left: 0; right: 0; background: #000; display: flex; align-items: center; gap: 12px; padding: 0 14px; }
+#topBar { top: 0; min-height: calc(58px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 12px 4px; letter-spacing: .05em; }
+#turnInfo { font-size: 17px; }
+#stock { font-size: 14px; color: #d9d2c0; margin-top: 2px; }
+#bottomBar { bottom: 0; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); flex-direction: column; align-items: stretch; gap: 6px; }
+#info { font-size: 15px; letter-spacing: .04em; color: #d9d2c0; line-height: 1.2; min-height: 18px; }
+#actions { display: flex; flex-wrap: wrap; gap: 6px; }
+#actions:empty { display: none; }
+#actions button { flex: 1 1 45%; min-height: 44px; padding: 0 8px; font-size: 15px; border-color: var(--tan); }
+#buttons { display: flex; gap: 6px; }
+#buttons button { flex: 1; min-height: 46px; padding: 0 4px; font-size: 15px; }
+#roadBtn.on { border-color: var(--yellow); color: var(--yellow); }
+#endBtn { border-color: var(--yellow); color: var(--yellow); }
+
+.sheet { position: fixed; inset: 0; background: #000; overflow-y: auto; padding: calc(14px + env(safe-area-inset-top)) 16px 24px; }
+.sheetHead { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+.sheet h2 { font-size: 24px; font-weight: 400; letter-spacing: .06em; margin: 0; }
+.sheet button { min-height: 46px; padding: 0 12px; font-size: 16px; }
+.sheet p { font-size: 17px; line-height: 1.3; color: #e6dfcd; }
+.realmRow { border-top: 1px solid #3a3121; padding: 12px 0; }
+.realmRow .name { font-size: 19px; letter-spacing: .04em; }
+.realmRow .note { font-size: 14px; color: var(--dim); margin: 2px 0 8px; }
+.row { display: flex; gap: 8px; }
+.row button { flex: 1; }
+.dealSide { border-top: 1px solid #3a3121; padding: 10px 0; }
+.dealSide h3 { font-size: 17px; font-weight: 400; letter-spacing: .05em; color: var(--yellow); margin: 0 0 8px; }
+.stepper { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 17px; }
+.stepper div { display: flex; align-items: center; gap: 10px; }
+.stepper button { width: 46px; padding: 0; font-size: 22px; }
+.stepper b { font-weight: 400; min-width: 28px; text-align: center; }
+.nameField { font: inherit; font-size: 22px; width: 100%; padding: 12px 14px; margin-bottom: 12px; background: #000; color: var(--ink); border: 1px solid var(--dim); border-radius: 0; }
+.scale { margin: 10px 0 14px; font-size: 16px; letter-spacing: .04em; }
+.scaleBar { height: 12px; background: #2a241a; margin-top: 6px; }
+.scaleBar div { height: 100%; background: var(--yellow); }
+.note2 { font-size: 15px; color: var(--dim); margin: 0 0 10px; }
+.ostrogBtn { display: block; width: 100%; margin-bottom: 6px; text-align: left; }
+.ostrogBtn.on { border-color: var(--yellow); color: var(--yellow); }
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(170px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  max-width: 88vw;
+  background: #000;
+  padding: 8px 16px;
+  font-size: 17px;
+  letter-spacing: .05em;
+  text-align: center;
+}
+
+.page {
+  position: fixed;
+  inset: 0;
+  background: var(--ground);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+}
+.page h1 { font-size: 34px; font-weight: 400; letter-spacing: .08em; margin: 0; }
+.page p { font-size: 19px; letter-spacing: .05em; margin: 0; color: #e6dfcd; }
+.page input {
+  font: inherit;
+  font-size: 22px;
+  width: min(320px, 100%);
+  padding: 12px 14px;
+  background: #000;
+  color: var(--ink);
+  border: 1px solid var(--dim);
+  text-align: center;
+  border-radius: 0;
+}
+.page button { font-size: 21px; padding: 12px 34px; }
+#crest { width: 110px; height: 190px; }

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <title>Тридевять земель</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya:wght@400;500&family=Alegreya+SC:wght@500&display=swap&subset=cyrillic">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/play.css">
+</head>
+<body>
+  <div id="joinPage" class="page">
+    <h1>Тридевять земель</h1>
+    <p id="joinNote">Как вас зовут?</p>
+    <input id="nameInput" maxlength="16" autocomplete="off" aria-label="Имя">
+    <button id="joinBtn">Войти</button>
+  </div>
+
+  <div id="waitPage" class="page hidden">
+    <canvas id="crest"></canvas>
+    <h1 id="waitRealm"></h1>
+    <button id="waitName">Имя князя</button>
+    <p id="waitNote">Ждём начала партии на общем экране</p>
+    <button id="waitLeave">Выйти</button>
+  </div>
+
+  <div id="view" class="hidden"><canvas id="world"></canvas></div>
+  <div id="topBar" class="bar hidden">
+    <div id="topRow">
+      <button id="realmBtn" aria-label="Имя князя"></button>
+      <button id="leaveBtn">Выйти</button>
+    </div>
+    <button id="stockBtn">
+      <span id="turnInfo"></span>
+      <span id="stock"></span>
+    </button>
+  </div>
+  <div id="bottomBar" class="bar hidden">
+    <div id="info"></div>
+    <div id="actions"></div>
+    <div id="buttons">
+      <button id="roadBtn">Дорога</button>
+      <button id="diploBtn">Дипломатия</button>
+      <button id="endBtn">Конец хода</button>
+    </div>
+  </div>
+
+  <div id="sheet" class="sheet hidden">
+    <div class="sheetHead">
+      <h2 id="sheetTitle"></h2>
+      <button id="sheetClose">Закрыть</button>
+    </div>
+    <div id="sheetBody"></div>
+  </div>
+
+  <div id="offerBox" class="modal hidden">
+    <div class="card">
+      <h2>Предложение</h2>
+      <p id="offerText"></p>
+      <div class="row">
+        <button id="offerYes" class="yes">Принять</button>
+        <button id="offerNo">Отказать</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="askBox" class="modal hidden" role="alertdialog" aria-modal="true" aria-labelledby="askTitle">
+    <div class="card">
+      <h2 id="askTitle"></h2>
+      <p id="askText"></p>
+      <div id="askExtra"></div>
+      <div class="row">
+        <button id="askYes" class="yes"></button>
+        <button id="askNo">Нет</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="meetBox" class="modal hidden" role="alertdialog" aria-modal="true" aria-labelledby="meetTitle">
+    <div id="meetCard" class="card">
+      <h2 id="meetTitle"></h2>
+      <p id="meetText"></p>
+      <p id="meetMark"></p>
+      <button id="meetFight"><b id="meetOdds"></b><small id="meetStake"></small></button>
+      <button id="meetHurt"><b>Пострадать</b><small id="meetCurse"></small></button>
+    </div>
+  </div>
+
+  <div id="turnCover" class="hidden">
+    <div id="coverBody">
+      <h1 id="coverTitle"></h1>
+      <p id="coverName"></p>
+      <p id="coverHint"></p>
+      <p id="coverFallen"></p>
+      <div id="coverLegend"></div>
+      <ul id="coverList"></ul>
+    </div>
+    <button id="coverNext">Далее</button>
+  </div>
+
+  <div id="toast" aria-live="polite"></div>
+
+  <script type="module" src="/js/play.js"></script>
+</body>
+</html>

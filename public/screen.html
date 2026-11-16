@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Тридевять земель</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya:wght@400;500&family=Alegreya+SC:wght@500&display=swap&subset=cyrillic">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/screen.css">
+</head>
+<body>
+  <div id="stage" class="hidden"><canvas id="world"></canvas></div>
+
+  <div id="band" class="hidden">
+    <div id="turnBox">
+      <span id="turnLabel"></span>
+      <button id="settingsBtn">Настройки</button>
+    </div>
+    <div id="caption"></div>
+    <div id="realms"></div>
+  </div>
+
+  <div id="hurryClock" class="hidden"><b></b><span>до конца хода</span></div>
+
+  <div id="slide" class="hidden">
+    <div id="slideBox">
+      <div id="slideHead">
+        <h2 id="slideTitle"></h2>
+        <div id="slideHint"></div>
+        <div class="ornament"></div>
+      </div>
+      <div id="slideRoom"><ul id="slideList"></ul><div id="slideToll" class="hidden"></div></div>
+    </div>
+  </div>
+
+  <div id="tale" class="hidden">
+    <canvas id="taleHero" aria-hidden="true"></canvas>
+    <div id="taleMain">
+      <h2 id="taleTitle"></h2>
+      <div class="ornament"></div>
+      <div id="taleLines"></div>
+      <div id="taleFates"></div>
+    </div>
+    <button id="taleSkip">Пропустить</button>
+  </div>
+
+  <div id="overBox" class="hidden">
+    <div id="overHead">
+      <button id="overSettings">Настройки</button>
+      <canvas id="overBanner"></canvas>
+      <div>
+        <h2 id="overTitle"></h2>
+        <div id="overWorld"></div>
+        <div id="overTale"></div>
+      </div>
+      <button id="againBtn">Новая партия</button>
+      <button id="overClose" class="hidden">Закрыть</button>
+    </div>
+    <div id="overLegend"></div>
+    <div id="overCharts"></div>
+    <div id="overTable"></div>
+  </div>
+
+  <div id="curtain" class="hidden"><div id="curtainText"></div></div>
+
+  <div id="howBox" class="hidden">
+    <video id="howVideo" controls preload="none" src="/how-to-play.mp4"></video>
+    <button id="howClose">Закрыть</button>
+  </div>
+
+  <div id="settingsBox" class="hidden">
+    <div>
+      <h2>Настройки</h2>
+      <div class="settingsRow" id="gameRow">
+        <button id="statsBtn">Статистика</button>
+        <button id="tiesBtn">Союзы и войны</button>
+        <button id="qrBtn">QR-код</button>
+        <button id="finishBtn">Закончить</button>
+        <button id="restartBtn">Заново</button>
+      </div>
+      <div class="settingsRow"><button id="musicBtn" class="switch"></button><button id="voiceBtn" class="switch"></button></div>
+      <div class="settingsRow"><button id="hurryBtn" class="switch"></button></div>
+      <label class="settingsRow" for="musicVolume">Громкость музыки
+        <input id="musicVolume" type="range" min="0" max="150" step="5">
+      </label>
+      <button id="settingsClose">Закрыть</button>
+    </div>
+  </div>
+
+  <div id="tiesBox" class="hidden">
+    <div>
+      <h2>Союзы и войны</h2>
+      <div id="tiesDraw"></div>
+      <div id="tiesList"></div>
+      <button id="tiesClose">Закрыть</button>
+    </div>
+  </div>
+
+  <div id="qrBox" class="hidden">
+    <div>
+      <canvas id="qrBig" aria-label="QR-код для возвращения в игру"></canvas>
+      <div class="address" id="qrAddress"></div>
+      <div class="hint">Наведите камеру телефона. Если вышли случайно, введите то же имя</div>
+      <button id="qrClose">Закрыть</button>
+    </div>
+  </div>
+
+  <div id="finishBox" class="hidden">
+    <div>
+      <h2>Закончить партию?</h2>
+      <div class="hint">Победит царство с наибольшей землёй, на экране появятся итоги</div>
+      <button id="finishYes">Да, закончить</button>
+      <button id="finishNo">Отмена</button>
+    </div>
+  </div>
+
+  <div id="restartBox" class="hidden">
+    <div>
+      <h2>Начать заново?</h2>
+      <div class="hint">Эта партия закончится без итогов, игроки вернутся в лобби</div>
+      <button id="restartYes">Да, заново</button>
+      <button id="restartNo">Отмена</button>
+    </div>
+  </div>
+
+  <div id="lobby">
+    <canvas id="lobbyArt"></canvas>
+    <div id="lobbyBox">
+      <h1>Тридевять земель</h1>
+      <div class="hint">Наведите камеру телефона на код. Нужна одна сеть Wi-Fi</div>
+      <canvas id="qr" aria-label="QR-код для входа с телефона"></canvas>
+      <div class="address" id="address"></div>
+      <ul id="seats"></ul>
+      <div class="botRow">
+        <span>Боты</span>
+        <button id="botLess" aria-label="Меньше ботов">−</button>
+        <span id="botCount">0</span>
+        <button id="botMore" aria-label="Больше ботов">+</button>
+      </div>
+      <button id="startBtn">Начать</button>
+      <button id="howBtn" class="hidden">Как играть</button>
+      <button id="lobbySettings">Настройки</button>
+      <div id="lobbyError"></div>
+    </div>
+    <div id="lobbyBand"></div>
+  </div>
+
+  <script type="module" src="/js/screen.js"></script>
+</body>
+</html>

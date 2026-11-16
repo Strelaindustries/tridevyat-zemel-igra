@@ -1,0 +1,187 @@
+/* Телефон. Слои снизу вверх: карта, полосы, окно, предложение, подтверждение, встреча, сообщения, экран хода. */
+
+/* Масштаб страницы запрещён: щипок и двойное нажатие достаются только карте. Окна листаются по вертикали. */
+*, *::before, *::after { touch-action: none; }
+.sheet, .sheet *, .card, .card *, #actions, #actions *, #coverBody, #coverBody * { touch-action: pan-y; }
+html, body { position: fixed; inset: 0; width: 100%; height: 100dvh; overscroll-behavior: none; }
+#view { bottom: auto; height: 100dvh; }
+.bar { -webkit-user-select: none; user-select: none; }
+
+/* Цвет царства рядом с именем */
+.realmDot {
+  display: inline-block;
+  width: .72em;
+  height: .72em;
+  margin-right: .36em;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(242, 239, 230, .45);
+  vertical-align: baseline;
+}
+
+/* Верхняя полоса */
+#topBar { z-index: 10; flex-direction: column; gap: 0; padding: env(safe-area-inset-top) 8px 0 0; align-items: stretch; }
+#topRow { display: flex; align-items: center; gap: 4px; min-width: 0; }
+#realmBtn {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 4px 0 12px;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-size: 17px;
+  letter-spacing: .03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#stockBtn {
+  min-width: 0;
+  min-height: 46px;
+  padding: 0 4px 6px 12px;
+  border: 0;
+  background: none;
+  text-align: left;
+  letter-spacing: .03em;
+}
+#turnInfo { display: block; font-size: 16px; line-height: 1.2; }
+#stock { display: block; font-size: 14px; line-height: 1.25; margin-top: 3px; text-decoration: underline dotted #6b624f; text-underline-offset: 3px; }
+#stock span { white-space: nowrap; }
+#leaveBtn { flex: none; align-self: center; min-height: 44px; padding: 0 10px; font-size: 14px; letter-spacing: .04em; border-color: #6b624f; }
+
+/* Нижняя полоса */
+#bottomBar {
+  z-index: 10;
+  gap: 8px;
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+  max-height: calc(100dvh - 112px - env(safe-area-inset-top));
+}
+#info { flex: none; font-size: 16px; line-height: 1.25; min-height: 20px; white-space: pre-line; }
+#actions { flex: 0 1 auto; gap: 8px; min-height: 0; max-height: 40vh; overflow-y: auto; }
+#actions button { min-height: 50px; padding: 4px 8px; line-height: 1.15; letter-spacing: .04em; text-wrap: balance; }
+#buttons { flex: none; gap: 8px; }
+#buttons button { min-height: 54px; font-size: 16px; line-height: 1.1; letter-spacing: .03em; }
+
+/* Окна */
+.sheet { z-index: 20; padding: 0 16px calc(24px + env(safe-area-inset-bottom)); }
+.sheetHead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 -16px 8px;
+  padding: calc(8px + env(safe-area-inset-top)) 16px 8px;
+  background: #000;
+}
+.sheet button { line-height: 1.15; letter-spacing: .04em; }
+.sheet .row button { min-height: 50px; padding: 0 6px; }
+.sheet .row + .row:not(:empty) { margin-top: 8px; }
+.row button.chosen { color: var(--yellow); border-color: var(--yellow); }
+#askExtra:not(:empty) { margin-bottom: 12px; }
+#askExtra .row { margin-top: 8px; }
+#askExtra .row button { min-height: 50px; padding: 0 4px; font-size: 16px; }
+#askExtra .stockText { color: var(--dim); font-size: 15px; line-height: 1.3; margin: 8px 0 0; }
+#sheetBody > button { width: 100%; min-height: 54px; margin-top: 8px; }
+.sheet p.note2 { font-size: 15px; color: var(--dim); }
+.sheet p.warn { font-size: 17px; line-height: 1.25; color: var(--yellow); margin: 0 0 12px; }
+.stepper button { width: 50px; min-height: 50px; }
+
+.stockHead { font-size: 18px; font-weight: 400; letter-spacing: .05em; color: var(--yellow); margin: 14px 0 4px; padding-top: 10px; border-top: 1px solid #3a3121; }
+.stockHead:first-child { margin-top: 0; }
+.stockRow { display: flex; justify-content: space-between; gap: 16px; font-size: 17px; line-height: 1.25; padding: 3px 0; }
+.stockRow b { font-weight: 400; white-space: nowrap; }
+.stockRow.sum { color: var(--yellow); }
+#sheetBody .warLine { font-size: 17px; line-height: 1.25; margin: 4px 0 0; }
+#sheetBody .stockText { color: var(--dim); font-size: 15px; line-height: 1.3; margin: 8px 0 0; }
+
+/* Предложение и подтверждение */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+  background: rgba(0, 0, 0, .74);
+}
+#askBox { z-index: 40; }
+
+/* Встреча: снизу окно без кнопки закрытия, сверху видно существо на карте */
+#meetBox { z-index: 42; place-items: end center; background: linear-gradient(rgba(0, 0, 0, 0) 45%, rgba(0, 0, 0, .7)); }
+#meetCard { display: flex; flex-direction: column; gap: 8px; max-height: 66dvh; padding: 14px 14px 12px; }
+#meetCard h2 { margin: 0; }
+#meetCard p { margin: 0; font-size: 16px; line-height: 1.25; }
+#meetMark { color: var(--yellow); }
+#meetCard button { flex: none; min-height: 60px; padding: 6px 10px; line-height: 1.2; letter-spacing: .02em; }
+#meetCard button:disabled { color: var(--dim); border-color: #3a3121; }
+#meetCard b { display: block; font-weight: 400; font-size: 19px; }
+#meetCard small { display: block; font-size: 15px; color: #d9d2c0; margin-top: 2px; }
+/* На низком телефоне три кнопки важнее вида на карту: окно растёт и сжимается, лишь бы влезть без прокрутки */
+@media (max-height: 740px) {
+  #meetCard { max-height: 100%; gap: 6px; padding: 10px 12px; }
+  #meetCard p { font-size: 15px; line-height: 1.2; }
+  #meetCard button { min-height: 50px; padding: 4px 8px; line-height: 1.15; }
+  #meetCard b { font-size: 18px; }
+  #meetCard small { font-size: 14px; margin-top: 0; }
+}
+.card { width: min(100%, 360px); max-height: 100%; overflow-y: auto; padding: 20px 18px 18px; background: #000; border: 1px solid var(--tan); }
+.card h2 { font-size: 24px; font-weight: 400; letter-spacing: .05em; line-height: 1.2; margin: 0 0 10px; }
+.card p { font-size: 17px; line-height: 1.3; color: #e6dfcd; margin: 0 0 16px; white-space: pre-line; }
+.card p:empty { display: none; }
+.card .row button { min-height: 54px; padding: 0 8px; font-size: 17px; line-height: 1.15; letter-spacing: .03em; }
+.yes { border-color: var(--yellow); color: var(--yellow); }
+
+/* Экран хода */
+#turnCover {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: calc(24px + env(safe-area-inset-top)) 24px calc(20px + env(safe-area-inset-bottom));
+  background: #000;
+  text-align: center;
+}
+#coverBody { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+#coverBody::before { content: ''; margin-top: auto; }
+#coverBody::after { content: ''; margin-bottom: auto; }
+#coverTitle { font-size: 64px; font-weight: 400; letter-spacing: .06em; line-height: 1.1; margin: 0; }
+#coverName { font-size: 32px; letter-spacing: .08em; line-height: 1.2; color: var(--yellow); margin: 10px 0 0; }
+#coverHint { font-size: 19px; line-height: 1.3; color: #d9d2c0; margin: 14px 0 0; }
+#coverHint:empty { display: none; }
+#coverFallen { font-size: 18px; line-height: 1.3; color: #e6dfcd; margin: 14px 0 0; }
+#coverFallen:empty { display: none; }
+#coverLegend { margin-top: 14px; text-align: left; }
+#coverLegend:empty { display: none; }
+.legendLine { font-size: 17px; line-height: 1.3; color: #e6dfcd; margin: 0; padding: 8px 0; border-top: 1px solid #3a3121; }
+.legendLine b { font-weight: 400; color: var(--yellow); }
+.legendStory { font-size: 16px; line-height: 1.3; color: #d9d2c0; margin: 0; padding: 4px 0; }
+#coverList { list-style: none; margin: 16px 0 0; padding: 0; font-size: 18px; line-height: 1.3; }
+#coverList:empty { display: none; }
+#coverList li { padding: 12px 0; border-top: 1px solid #3a3121; }
+#coverNext { flex: none; width: 100%; min-height: 60px; font-size: 22px; border-color: var(--yellow); color: var(--yellow); }
+#turnCover.wait #coverTitle { font-size: 44px; letter-spacing: .04em; }
+#turnCover.wait #coverName { font-size: 22px; letter-spacing: .05em; color: #d9d2c0; margin-top: 16px; }
+
+/* Сообщения не закрывают полосы и не мешают касаниям */
+#toast {
+  top: calc(100px + env(safe-area-inset-top));
+  bottom: auto;
+  left: 12px;
+  right: 12px;
+  z-index: 45;
+  transform: none;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  background: none;
+  pointer-events: none;
+}
+#toast:empty { display: none; }
+#sheet:not(.hidden) ~ #toast { top: auto; bottom: calc(16px + env(safe-area-inset-bottom)); }
+#toast div { max-width: 100%; padding: 8px 14px; background: #000; border: 1px solid #6b624f; line-height: 1.2; }
+
+#waitLeave, #waitName { font-size: 17px; padding: 10px 30px; min-height: 48px; margin-top: 8px; }
