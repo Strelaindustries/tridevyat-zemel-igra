@@ -84,7 +84,7 @@ function giftOf(s, pid, want) {
 // Переговоры по обстановке. Сторона врага сильнее: бот просит мира с подарком, начиная с самого сильного врага.
 // Враг или вожак сильнее самого бота: бот зовёт в союз того, кто с ним уже воюет, или самого сильного из мирных.
 function considerTalks(s, pid, done) {
-  const alive = s.players.filter(p => !p.out && p.id !== pid);
+  const alive = s.players.filter(p => !p.out && !p.horde && p.id !== pid);
   const foes = alive.filter(p => atWar(s, pid, p.id)).sort((a, b) => powerOf(s, b.id) - powerOf(s, a.id));
   for (const e of foes) {
     const key = `peace:${e.id}`;
@@ -320,6 +320,8 @@ function chooseTarget(s, pid, path, claimed, u) {
   if (!fighter && !settler) {
     for (const m of s.units) if (m.owner === pid && m !== u && m.n < MAX_SOLDIERS) rate(m.tile, 14, true);
   }
+  // Пришла орда Тугарина: кто её разобьёт, тот победит. Боевые отряды идут к ней все вместе.
+  if (fighter && s.horde && s.horde.fallen == null) rate(s.horde.tile, B.BOT_ASSAULT + 15, true);
   // Царство падает, только когда не осталось ни поселений, ни отрядов: уцелевших надо догнать.
   if (fighter) {
     for (const e of s.units) {
@@ -345,9 +347,33 @@ function holdsBack(s, pid, u, target) {
 // Следующее действие бота или null, если все отряды закончили.
 // Встреча с существом решается первой: при хорошем шансе бот сражается,
 // иначе принимает беду.
+// Войско Тугарина: каждая сотня бьёт соседний вражеский отряд, штурмует соседнее поселение
+// или идёт к ближайшему поселению царств. Ничего не строит и не договаривается.
+function hordeAction(s, pid, done) {
+  const g = s.map;
+  for (const u of s.units.filter(x => x.owner === pid && x.mp > 0 && !done.has(x.id))) {
+    done.add(u.id);
+    if (s.orders.some(o => o.unit === u.id)) continue;
+    const prey = s.units.filter(e => e.owner !== pid && atWar(s, pid, e.owner) && (e.tile === u.tile || neighbors(g, u.tile).includes(e.tile)))
+      .sort((a, b) => a.n - b.n)[0];
+    if (prey) return enemyTown(s, pid, prey.tile) ? { type: 'storm', unit: u.id, tile: prey.tile } : { type: 'attack', unit: u.id, target: prey.id };
+    const wall = neighbors(g, u.tile).find(id => enemyTown(s, pid, id));
+    if (wall != null) return { type: 'storm', unit: u.id, tile: wall };
+    const path = flood(s, pid, u.tile), reach = reachOf(s, u);
+    const aim = g.tiles.filter(t => t.town?.owner != null && t.town.owner !== pid && path.cost[t.id] < Infinity)
+      .sort((a, b) => path.cost[a.id] - path.cost[b.id])[0];
+    if (!aim) continue;
+    const spot = stepToward(reach, path, sideOf(s, pid, path, aim.id));
+    if (spot >= 0 && spot !== u.tile) return { type: 'move', unit: u.id, tile: spot };
+  }
+  return null;
+}
+
 export function botAction(s, pid, done) {
+  if (s.players[pid].horde) return hordeAction(s, pid, done);
   const meet = s.encounters.find(e => e.pid === pid);
-  if (meet) return { type: 'encounter', id: meet.id, fight: meetChance(s, meet) >= B.BOT_FIGHT };
+  // С ордой Тугарина бот бьётся всегда: только так её можно разбить, а беда всё равно бьёт по отряду.
+  if (meet) return { type: 'encounter', id: meet.id, fight: meet.hero === 'tugarin' || meetChance(s, meet) >= B.BOT_FIGHT };
   const g = s.map, march = B.turnKind(s.turn) === 'march';
   const talk = considerTalks(s, pid, done);
   if (talk) return talk;

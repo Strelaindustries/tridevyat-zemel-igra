@@ -1,6 +1,6 @@
 // Общий экран: вся карта целиком, а когда все сходили, показ хода:
 // чёрный экран, мультик на карте и слайды. Телефоны ждут, пока показ не кончится.
-import { R, center, factionOf, isWater, setDarkSeat } from './hex.js';
+import { R, center, factionOf, isWater, setDarkSeat, setHordeSeat } from './hex.js';
 import { FALLEN_NAMES, GOAL, HEROES, TURN_HINTS, TURN_NAMES, WEATHER } from './balance.js';
 import { FAC, STRIKE, banner, dragonFlight, paintObject, soldier, soldierShadow, seeded } from './art.js';
 import { MapView, factionId, formation } from './view.js';
@@ -8,7 +8,7 @@ import { Battle, BATTLE_TIME } from './battle.js';
 import { listen, post } from './net.js';
 import { drawQR } from './qr.js';
 import { drawCharts, drawLegend } from './charts.js';
-import { HURRY_LINES, lineFor, realmForm, taleFor } from './lines.js';
+import { HURRY_LINES, TITLE_NAMES, lineFor, realmForm, taleFor } from './lines.js';
 import { tiesView } from './ties.js';
 import * as sound from './sound.js';
 
@@ -139,8 +139,9 @@ function renderBand() {
   $('turnLabel').textContent = `Ход ${shown.turn} · ${TURN_NAMES[shown.kind]} · ${WEATHER[shown.weather].name}`;
   const box = $('realms');
   box.textContent = '';
-  box.classList.toggle('many', shown.players.length > 5);
-  shown.players.forEach(p => {
+  const realms = shown.players.filter(p => !p.horde);
+  box.classList.toggle('many', realms.length > 5);
+  realms.forEach(p => {
     const row = document.createElement('div');
     row.className = `realm${p.done ? '' : ' active'}${p.out ? ' out' : ''}`;
     const icon = realmIcon(p.id);
@@ -195,7 +196,7 @@ function syncWorld() {
 
 function setTurnCaption() {
   if (!shown) return;
-  const active = shown.players.filter(p => !p.out && !p.left && !p.done);
+  const active = shown.players.filter(p => !p.out && !p.left && !p.done && !p.horde);
   const waiting = active.filter(p => !p.bot).map(p => p.name);
   caption(waiting.length ? `Ждём: ${waiting.join(', ')}` : active.length ? 'Все ходят одновременно' : 'Все сходили');
 }
@@ -976,6 +977,7 @@ function rewind() {
 function showLive(data) {
   if (finale || data.phase === 'over') return;   // итоги партии уже на экране
   if ('dark' in data) setDarkSeat(data.dark);
+  if ('hordeSeat' in data) setHordeSeat(data.hordeSeat);
   if (!data.units) shown.players = data.players;
   else { shown = data; syncWorld(); }
   renderTies();
@@ -1258,6 +1260,31 @@ function renderTable(results, winner, live = false) {
 // Графики строятся под настоящий размер, он меняется и с окном, и когда приходит шрифт.
 new ResizeObserver(() => { const open = finale ?? peek; if (open) renderCharts(open.results); }).observe($('overCharts'));
 
+// Титулы конца партии строкой под итогами: Строитель, Воевода, Купец, Хлебосол, Устоявший.
+function fillTitles(epilogue) {
+  const box = $('overTitles');
+  box.replaceChildren();
+  for (const [key, pid] of epilogue?.titles || []) {
+    const item = document.createElement('span');
+    item.append(`${TITLE_NAMES[key]}: `, realmDot(pid), realmName(pid));
+    box.append(item);
+  }
+}
+
+// Итоговый сказ дед рассказывает один раз за партию, строка за строкой, подпись идёт вместе с ним.
+let toldEpilogue = -1;
+async function tellEpilogue(epilogue, mine) {
+  if (!epilogue?.tale?.length || toldEpilogue === mine) return;
+  toldEpilogue = mine;
+  await wait(1200);
+  for (const line of epilogue.tale) {
+    if (mine !== session) return;
+    caption(line);
+    await Promise.all([wait(2600), sound.say(line)]);
+  }
+  if (mine === session) caption('');
+}
+
 function fillOver(results, legend) {
   $('overWorld').textContent = `Ходов: ${results.turns} · Погибло в боях: ${results.killed} · Умерло от голода: ${results.starved}`
     + ` · Стало руин: ${results.ruins} · Испорчено клеток: ${results.turned}`;
@@ -1300,8 +1327,10 @@ function showFinal(state, mine = session) {
   $('overBanner').classList.toggle('hidden', winner == null);
   if (winner != null) paintBanner($('overBanner'), winner, 4);
   fillOver(results, state.legend);
+  fillTitles(state.epilogue);
   renderTable(results, winner);
   box.classList.remove('hidden');
+  tellEpilogue(state.epilogue, mine);
   const covered = !$('curtain').classList.contains('hidden');
   box.classList.toggle('instant', covered);
   box.getBoundingClientRect();
@@ -1331,7 +1360,7 @@ function frame(now) {
   for (const f of fx) if (f.start) f.t = Math.max(0, (now - f.start) / 1000);
   const rise = new Map([...rising].map(([id, born]) => [id, Math.min(1, (now - born) / 600)]));
   view.draw(ctx, dpr, cam, vw, vh, {
-    time: now / 1000, units: shown.units, positions, fx, hide: hidden, rising: rise, hideCounts: true, patches: shown.patches,
+    time: now / 1000, units: shown.units, positions, fx, hide: hidden, rising: rise, hideCounts: true, patches: shown.patches, horde: shown.horde,
   });
 }
 requestAnimationFrame(frame);
@@ -1494,7 +1523,7 @@ function renderTies() {
   if (!tiesOpen || !shown) return;
   const army = {};
   for (const u of shown.units || []) army[u.owner] = (army[u.owner] || 0) + u.n;
-  const { svg, list } = tiesView({ players: shown.players, relations: shown.relations || [], pacts: shown.pacts || [], army });
+  const { svg, list } = tiesView({ players: shown.players.filter(p => !p.horde), relations: shown.relations || [], pacts: shown.pacts || [], army });
   $('tiesDraw').innerHTML = svg;
   $('tiesList').innerHTML = list;
 }
@@ -1529,6 +1558,7 @@ listen('/events', {
   state(data) {
     stopShow();
     setDarkSeat(data.dark);
+    setHordeSeat(data.hordeSeat);
     shown = data;
     base = structuredClone(data);
     syncWorld();

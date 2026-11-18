@@ -1,8 +1,8 @@
 // Правила партии. Сервер вызывает команды, а экран проигрывает накопленные события.
-import { LAND_NEXT, MAX_SOLDIERS, MOVES, TERRAIN, barred, dist, factionOf, isWater, neighbors, pathTo, reachable, setDarkSeat } from '../public/js/hex.js';
+import { LAND_NEXT, MAX_SOLDIERS, MOVES, TERRAIN, barred, dist, factionOf, isWater, neighbors, pathTo, reachable, setDarkSeat, setHordeSeat } from '../public/js/hex.js';
 import * as B from '../public/js/balance.js';
 import { generateMap, rng32 } from './mapgen.js';
-import { discordLine, disputeLine } from '../public/js/lines.js';
+import { discordLine, disputeLine, epilogueLines, hordeLine, hordeRaidLine } from '../public/js/lines.js';
 
 const emit = (s, type, data) => s.log.push({ type, ...data });
 const tell = (s, pid, type, data) => s.log.push({ type, ...data, only: pid });
@@ -77,6 +77,7 @@ export function newGame(seats, seed = Math.floor(Math.random() * 1e9), { legend 
   // Тёмное царство: первый бот партии.
   const darkAt = seats.findIndex(p => p.bot), dark = darkAt < 0 ? null : darkAt;
   setDarkSeat(dark);
+  setHordeSeat(null);
   map.dark = dark;
   // Цену дороги и реки знает и клиент: она уходит вместе с картой.
   map.roadStep = mods.roadStep;
@@ -95,6 +96,8 @@ export function newGame(seats, seed = Math.floor(Math.random() * 1e9), { legend 
     landDirty: false, stats: { rot: 0, turned: 0, ruins: 0, faded: 0, starved: 0, killed: 0, sieges: 0 }, dark,
   };
   s.nextDispute = B.DISPUTE_FIRST[0] + Math.floor(s.rand() * (B.DISPUTE_FIRST[1] - B.DISPUTE_FIRST[0] + 1));
+  s.hordeTurn = B.TUGARIN_TURN[0] + Math.floor(s.rand() * (B.TUGARIN_TURN[1] - B.TUGARIN_TURN[0] + 1));
+  s.horde = null;
   map.capitals.forEach((id, owner) => {
     map.tiles[id].town = { type: 'capital', owner, gnomes: B.START.gnomes, empty: 0 };
     for (const t of map.tiles) {
@@ -386,6 +389,8 @@ function upkeep(s, pid) {
     delete u.fresh;
   }
   s.units = s.units.filter(u => u.n > 0);
+  // Войско Тугарина не ест и грибов не собирает.
+  if (p.horde) return { crop: 0, plan: { stock: 0, eaten: 0, changes: [] } };
   const crop = harvestOf(s, pid);
   for (const t of pickingCamps(s, pid)) t.patch.rotBy = pid;
   p.mushrooms = stored(s, p) + crop;
@@ -425,7 +430,7 @@ function beginRound(s) {
   const had = new Set(s.units);
   countDown(s);
   for (const u of s.units) if (!had.has(u)) touchHeroes(s, u, u.tile);
-  for (const p of s.players.filter(x => !x.out)) {
+  for (const p of s.players.filter(x => !x.out && !x.horde)) {
     drainCamps(s, p.id);
     noteBlight(s, p.id);
   }
@@ -437,15 +442,147 @@ function beginRound(s) {
     s.nextDispute = s.turn + B.DISPUTE_GAP[0] + Math.floor(s.rand() * (B.DISPUTE_GAP[1] - B.DISPUTE_GAP[0] + 1));
   }
   sowDiscord(s);
+  hordeTurn(s);
+}
+
+// --- нашествие Тугарина ---
+function hordeTurn(s) {
+  if (s.phase !== 'play') return;
+  if (s.horde) return hordeMarch(s);
+  if (s.turn >= (s.hordeTurn ?? Infinity)) hordeArrive(s);
+}
+
+// Орда приходит с дальнего края земли: на свободную клетку суши, куда пешком дальше всего от любой столицы.
+function hordeArrive(s) {
+  const g = s.map, alive = s.players.filter(p => !p.out && !p.horde && p.capital != null);
+  if (!alive.length) return;
+  const busy = new Set(s.units.map(u => u.tile));
+  const steps = alive.map(p => stepsFrom(s, p.capital));
+  const spots = g.tiles.filter(t => !isWater(g, t.id) && TERRAIN[t.t].cost != null && !t.town && !t.patch && !t.hero && !busy.has(t.id)
+    && t.r >= 3 && t.r < g.H - 3).map(t => ({ t, near: Math.min(...steps.map(d => d[t.id])) })).filter(x => x.near < Infinity);
+  if (!spots.length) return;
+  spots.sort((a, b) => b.near - a.near);
+  const spot = spots[Math.floor(s.rand() * Math.min(5, spots.length))].t;
+  spot.hero = 'tugarin';
+  s.heroes.add(spot.id);
+  const power = B.TUGARIN_BASE + B.TUGARIN_PER * alive.length;
+  s.horde = { tile: spot.id, power, start: power, came: s.turn };
+  raiseHorde(s, spot.id, B.hordeSquads(alive.length));
+  emit(s, 'hordeCame', { tile: spot.id, power });
+}
+
+// Войско Тугарина: отдельная сторона на следующем после царств месте, со всеми в войне.
+// Сотни по 10 воинов встают на ближайшие к Тугарину свободные клетки и ходят со следующего хода.
+function raiseHorde(s, tile, count) {
+  const g = s.map, pid = s.players.length;
+  s.players.push({
+    id: pid, name: 'Тугарин Змеевич', realm: '', bot: true, horde: true, out: false, left: false, done: false, capital: null,
+    mushrooms: 0, known: new Set(), seen: new Set(), hints: 0, fellOn: null, raids: 0, darks: 0, burns: 0, homeLeft: 0, birthShare: 0,
+    tally: { picked: 0, killed: 0, lost: 0, taken: 0, burned: 0, roads: 0, built: 0, deals: 0 },
+  });
+  s.hordeSeat = pid;
+  setHordeSeat(pid);
+  s.players[pid].realm = factionOf(pid).name;
+  s.toll.push(tollRow(pid));
+  s.fallen.push(tollRow(pid));
+  for (const p of s.players) if (p.id !== pid) s.rel.set(pairKey(p.id, pid), 'war');
+  const busy = new Set(s.units.map(u => u.tile)), d = stepsFrom(s, tile);
+  const spots = g.tiles.filter(t => t.id !== tile && d[t.id] < Infinity && !t.town && !t.hero && !busy.has(t.id))
+    .sort((a, b) => d[a.id] - d[b.id] || a.id - b.id).slice(0, count);
+  spots.forEach((t, i) => {
+    const u = addUnit(s, pid, t.id, MAX_SOLDIERS, 0);
+    u.name = `Сотня ${i + 1}`;
+  });
+}
+
+// Ход орды: до TUGARIN_STEP клеток к ближайшему живому поселению, в поселения и на чужие отряды она не ступает.
+// Подошла вплотную — разоряет его. Потом каждое царство, чей отряд стоит рядом, встречает орду.
+function hordeMarch(s) {
+  const h = s.horde, g = s.map;
+  if (!h || h.fallen != null) return;
+  // Путь обходит поселения, отряды и других существ. До ближайшего не пройти — орда идёт к следующему по близости.
+  const busy = new Set(s.units.map(u => u.tile));
+  const open = id => !g.tiles[id].town && !busy.has(id) && (!g.tiles[id].hero || id === h.tile);
+  const from = stepsFrom(s, h.tile);
+  const towns = g.tiles.filter(t => t.town?.owner != null && t.town.gnomes > 0 && !s.players[t.town.owner].out && from[t.id] < Infinity)
+    .sort((a, b) => from[a.id] - from[b.id]);
+  let aim = null, toAim = null;
+  for (const t of towns) {
+    const d = stepsFrom(s, t.id, open);
+    if (d[h.tile] < Infinity) { aim = t; toAim = d; break; }
+  }
+  h.news = [];
+  // Пока войско цело, Тугарин держится позади него и сам не разоряет. Войско разбито — идёт до поселения сам.
+  const army = s.units.some(u => u.owner === s.hordeSeat), stop = army ? B.TUGARIN_BEHIND : 1;
+  if (aim) {
+    let at = h.tile;
+    for (let k = 0; k < B.TUGARIN_STEP && toAim[at] > stop; k++) {
+      const next = neighbors(g, at).find(n => toAim[n] === toAim[at] - 1 && open(n));
+      if (next == null) break;
+      at = next;
+    }
+    if (at !== h.tile) {
+      const lair = g.tiles[h.tile];
+      lair.hero = null;
+      s.heroes.delete(h.tile);
+      g.tiles[at].hero = 'tugarin';
+      s.heroes.add(at);
+      emit(s, 'hordeMove', { from: h.tile, to: at });
+      h.tile = at;
+    }
+    if (!army && toAim[h.tile] <= 1) {
+      const town = aim.town, capital = town.type === 'capital';
+      const lost = capital ? Math.max(1, Math.ceil(town.gnomes * B.TUGARIN_CAPITAL)) : B.fireLoss(town.gnomes);
+      town.gnomes -= lost;
+      s.stats.killed += lost;
+      s.players[town.owner].tally.lost += lost;
+      lose(s, town.owner, 'fire', lost);
+      h.news.push({ owner: town.owner, capital, lost });
+      emit(s, 'hordeRaid', { tile: aim.id, owner: town.owner, capital, lost });
+    }
+  }
+  h.newsTurn = s.turn;
+  // Кто стоит рядом с ордой, встречает её: бой или беда. От царства выходит самый большой отряд.
+  const near = s.units.filter(u => dist(g, u.tile, h.tile) <= 1);
+  for (const p of s.players.filter(x => !x.horde)) {
+    const u = top(near.filter(x => x.owner === p.id), x => x.n);
+    if (u) meetHero(s, 'tugarin', p.id, u, h.tile);
+  }
+}
+
+// Бой с ордой: шанс по силе орды. Победа кончает партию, поражение ослабляет орду.
+function fightHorde(s, meet) {
+  const side = meetSide(s, meet), n = Math.min(MAX_SOLDIERS, side.n ?? side.gnomes), won = s.rand() < meetChance(s, meet);
+  const lost = Math.min(side.n ?? side.gnomes, (won ? B.fightWinLoss : B.fightLoseLoss)(n));
+  if ('n' in side) wound(s, side, lost);
+  else {
+    side.gnomes -= lost;
+    lose(s, meet.pid, 'curse', lost);
+  }
+  s.units = s.units.filter(x => x.n > 0);
+  s.encounters = s.encounters.filter(e => e !== meet);
+  const h = s.horde;
+  if (!won) h.power = Math.max(B.TUGARIN_FLOOR, h.power - n * B.TUGARIN_WEAR);
+  const fate = B.HEROES.tugarin[won ? 'gift' : 'curse'];
+  emit(s, 'encounter', { hero: 'tugarin', tile: meet.tile, owner: meet.pid, text: fate.name, won, lost, unit: meet.unit, power: h.power });
+  if (!won) return dropDefeated(s);
+  const t = s.map.tiles[h.tile];
+  t.hero = null;
+  s.heroes.delete(h.tile);
+  h.fallen = s.turn;
+  h.by = meet.pid;
+  emit(s, 'hordeFell', { tile: h.tile, owner: meet.pid });
+  finish(s, meet.pid, 'horde');
 }
 
 // Шаги пешком от клетки: вода и горы не пускают.
-function stepsFrom(s, start) {
+// pass: куда ещё можно ступить (по умолчанию на любую сушу без гор).
+function stepsFrom(s, start, pass = () => true) {
   const g = s.map, d = new Array(g.tiles.length).fill(Infinity), queue = [start];
   d[start] = 0;
   for (let i = 0; i < queue.length; i++) {
     for (const n of neighbors(g, queue[i])) {
-      if (d[n] !== Infinity || isWater(g, n) || TERRAIN[g.tiles[n].t].cost == null) continue;
+      if (d[n] !== Infinity || isWater(g, n) || TERRAIN[g.tiles[n].t].cost == null || !pass(n)) continue;
       d[n] = d[queue[i]] + 1;
       queue.push(n);
     }
@@ -493,7 +630,7 @@ function sowDiscord(s) {
     return;
   }
   if (d || s.turn < B.DISCORD_FROM || s.rand() >= B.DISCORD_CHANCE) return;
-  const alive = s.players.filter(p => !p.out);
+  const alive = s.players.filter(p => !p.out && !p.horde);
   let best = null;
   alive.forEach((pa, i) => {
     for (const pb of alive.slice(i + 1)) {
@@ -554,7 +691,9 @@ function plague(s) {
   emit(s, 'plague', {});
 }
 
-function finish(s, winner) {
+// how: чем кончилась партия — horde (одолели Тугарина), camps (лагеря на всех грибницах), last (уцелело одно царство),
+// end (кнопка «Закончить», победа по земле). Дед рассказывает итоговый сказ и раздаёт титулы.
+function finish(s, winner, how = 'end') {
   if (s.phase !== 'play') return;
   s.phase = 'over';
   s.winner = winner;
@@ -562,7 +701,28 @@ function finish(s, winner) {
   countSick(s);
   closeToll(s);
   record(s);
+  s.epilogue = epilogue(s, winner, how);
   emit(s, 'over', { winner });
+}
+
+// Итоговый сказ: как кончилась партия, кто дольше всех правил землёй, кто пал первым, и титулы.
+// Строитель — больше всех основал острогов, Воевода — больше всех побил врагов, Купец — больше всех сделок,
+// Хлебосол — больше всех собрал грибов, Устоявший — из уцелевших больше всех потерял.
+const TITLE_KEYS = [['builder', 'built'], ['warlord', 'killed'], ['merchant', 'deals'], ['host', 'picked']];
+function epilogue(s, winner, how) {
+  const best = (list, value) => list.filter(p => value(p) > 0).sort((a, b) => value(b) - value(a) || a.id - b.id)[0]?.id ?? null;
+  const realms = s.players.filter(p => !p.horde);
+  const titles = TITLE_KEYS.map(([key, field]) => [key, best(realms, p => p.tally[field])]);
+  titles.push(['stood', best(realms.filter(p => !p.out && p.id !== winner), p => p.tally.lost)]);
+  const leads = new Map();
+  for (const snap of s.history) {
+    const top = snap.players.reduce((b, p, i) => (p.land > (snap.players[b]?.land ?? -1) ? i : b), 0);
+    if (snap.players[top]?.land > 0) leads.set(top, (leads.get(top) || 0) + 1);
+  }
+  const leader = [...leads].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] ?? null;
+  const fallen = s.players.filter(p => !p.horde && p.fellOn != null).sort((a, b) => a.fellOn - b.fellOn || a.id - b.id)[0]?.id ?? null;
+  const got = titles.filter(([, pid]) => pid != null);
+  return { how, titles: got, tale: epilogueLines({ winner, how, leader, fallen, titles: got }) };
 }
 
 // Что ждёт всех в начавшемся ходу: общий экран и телефоны показывают это перед ходом.
@@ -580,6 +740,10 @@ function notices(s) {
   const d = s.discord;
   if (d?.warn === s.turn) list.push(discordLine(d.a, d.b, 'warn'));
   if (d?.strike === s.turn && (d.kind === 'ally' || d.kind === 'truce')) list.push(discordLine(d.a, d.b, d.kind));
+  // Нашествие: за ход до прихода предупреждение, в ход прихода объявление, потом разорённые поселения.
+  if (!s.horde && s.turn === s.hordeTurn - 1) list.push(hordeLine('warn'));
+  if (s.horde?.came === s.turn) list.push(hordeLine('came'));
+  if (s.horde?.newsTurn === s.turn) for (const r of s.horde.news || []) list.push(hordeRaidLine(r.owner, r.capital));
   return list;
 }
 
@@ -588,7 +752,7 @@ function checkWin(s) {
   const patches = allPatches(s);
   if (!patches.length) return;
   const first = patches[0].patch.camp?.owner;
-  if (first != null && patches.every(t => t.patch.camp?.owner === first)) finish(s, first);
+  if (first != null && patches.every(t => t.patch.camp?.owner === first)) finish(s, first, 'camps');
 }
 
 // Столица ушла: переезд в самый большой острог, запас грибов остаётся, а грибы столицы приходят уже туда.
@@ -608,6 +772,7 @@ function moveCapitalAway(s, pid, target = null) {
 const closed = (s, pid, owner) => owner != null && !s.players[owner].out && !atWar(s, pid, owner);
 
 function paint(s, pid, id) {
+  if (s.players[pid].horde) return;   // войско Тугарина земли не держит
   const t = s.map.tiles[id];
   if (t.t === 'sea' || t.terr === pid) return;
   if (t.town?.owner != null && t.town.owner !== pid) return;  // цвет живого поселения не меняется
@@ -618,6 +783,7 @@ function paint(s, pid, id) {
 // Лагерь занимают приходом, ничейный острог входом. Живое поселение войска не забирают: его только разрушают.
 function capture(s, u) {
   const t = s.map.tiles[u.tile], pid = u.owner, p = s.players[pid];
+  if (p.horde) return;   // войско Тугарина ничего не занимает, только разоряет
   if (t.patch) {
     p.known.add(t.id);
     const camp = t.patch.camp;
@@ -688,8 +854,8 @@ function dropDefeated(s) {
       emit(s, 'fell', { player: p.id });
     }
   }
-  const alive = s.players.filter(p => !p.out);
-  if (alive.length <= 1) finish(s, alive[0]?.id ?? null);
+  const alive = s.players.filter(p => !p.out && !p.horde);
+  if (alive.length <= 1) finish(s, alive[0]?.id ?? null, 'last');
 }
 
 // Для итогов партии: потери одной стороны идут в счёт другой.
@@ -984,9 +1150,10 @@ function threat(s, key, ostrog, dark) {
 }
 
 function meetHero(s, key, pid, u, tile, ostrog = null) {
+  if (s.players[pid]?.horde) return;   // существа войско Тугарина не трогают
   if (s.encounters.some(e => e.hero === key && e.pid === pid)) return;
   if (key === 'vodyanoy') s.watered = true;
-  const dark = isDark(s);
+  const dark = isDark(s) && !B.HEROES[key].horde;
   const meet = {
     id: s.nextMeet++, hero: key, pid, unit: u?.id ?? null, tile, ostrog,
     price: B.ransom(s.turn, s.mods.ransom * (dark ? B.DARK_RANSOM : 1)),
@@ -1146,8 +1313,8 @@ function settleMeet(s, meet, fight = null) {
     ...(ostrog == null ? {} : { ostrog }), ...(raid ? { burned } : {}),
     ...(dark ? { dark } : {}), ...(fight ? { ...fight, unit: meet.unit, ...(fight.won ? { gold: meet.price } : {}) } : {}),
   });
-  // Существо уходит раньше, чем судьба двинет отряд: иначе встреча повторилась бы на месте.
-  (fight?.won ? banish : rehide)(s, key, tile);
+  // Существо уходит раньше, чем судьба двинет отряд: иначе встреча повторилась бы на месте. Орда стоит, где стояла.
+  if (key !== 'tugarin') (fight?.won ? banish : rehide)(s, key, tile);
   if (!raid || sharp) applyFate(s, pid, fate, s.units.find(u => u.id === meet.unit));
 }
 
@@ -1158,11 +1325,13 @@ const meetSide = (s, meet) => s.units.find(x => x.id === meet.unit)
 // Шанс победы на встрече. Некому биться, значит шанса нет.
 export function meetChance(s, meet) {
   const side = meetSide(s, meet);
-  return side ? B.fightChance(Math.min(MAX_SOLDIERS, side.n ?? side.gnomes), B.HEROES[meet.hero].power) : null;
+  const power = meet.hero === 'tugarin' ? s.horde?.power ?? 0 : B.HEROES[meet.hero].power;
+  return side ? B.fightChance(Math.min(MAX_SOLDIERS, side.n ?? side.gnomes), power) : null;
 }
 
 // Бой с существом решается сразу, шанс виден на кнопке. Потери отряда считаются как проклятья.
 function fightMeet(s, meet) {
+  if (meet.hero === 'tugarin') return fightHorde(s, meet);
   const side = meetSide(s, meet), won = s.rand() < meetChance(s, meet);
   const lost = Math.min(side.n ?? side.gnomes, (won ? B.fightWinLoss : B.fightLoseLoss)(Math.min(MAX_SOLDIERS, side.n ?? side.gnomes)));
   if ('n' in side) wound(s, side, lost);
@@ -1199,7 +1368,7 @@ function raidAim(s, pid) {
 // Вышедшего налёт облетает, а вернувшийся должен пропущенное (cmdReturn).
 function raidTarget(s) {
   for (let i = 0; i < 2 * s.players.length; i++) {
-    const live = s.players.filter(p => !p.out && (!p.left || p.raidDue));
+    const live = s.players.filter(p => !p.out && !p.horde && (!p.left || p.raidDue));
     if (!live.length) return null;
     const least = Math.min(...live.map(p => p.raids));
     const p = anyOf(s, live.filter(x => x.raids === least));
@@ -1316,7 +1485,7 @@ const darkFull = (s, pid) => s.encounters.filter(e => e.pid === pid).length >= B
 // Вышедшего она облетает, а царство с полной нормой за этот ход ждёт следующих тёмных времён.
 // Кому некого встречать, тот долга не копит: иначе все существа разом пришли бы к его первому новому отряду.
 function darkVictim(s, fits) {
-  const live = s.players.filter(p => !p.out && !p.left && !darkFull(s, p.id));
+  const live = s.players.filter(p => !p.out && !p.horde && !p.left && !darkFull(s, p.id));
   const able = live.filter(p => fits(p.id));
   if (!able.length) return null;
   const least = Math.min(...able.map(p => p.darks));
@@ -1363,7 +1532,7 @@ function darkHeroes(s) {
   const raided = dragonFlight(s, true);
   if (raided != null) s.players[raided].darks++;
   darkSwim(s);
-  for (const key of shuffled(s, Object.keys(B.HEROES).filter(k => k !== 'gorynych' && k !== 'vodyanoy'))) darkWalk(s, key);
+  for (const key of shuffled(s, Object.keys(B.HEROES).filter(k => k !== 'gorynych' && k !== 'vodyanoy' && !B.HEROES[k].horde))) darkWalk(s, key);
 }
 
 // Каждый поход, начиная с третьего хода, Горыныч и Водяной меняют место.
@@ -1776,6 +1945,7 @@ export function cmdOffer(s, pid, { to, kind, give, take }) {
   if (!myTurn(s, pid)) return { error: 'Вы уже закончили ход' };
   const other = Number.isInteger(to) ? s.players[to] : null;
   if (!other || other.id === pid || other.out) return { error: 'Такого царства нет' };
+  if (other.horde || s.players[pid].horde) return { error: 'С войском Тугарина не договориться' };
   if (!OFFER_KINDS.includes(kind)) return { error: 'Неизвестное предложение' };
   if (kind === 'ally' && allied(s, pid, to)) return { error: 'Союз уже заключён' };
   if (kind === 'peace' && !atWar(s, pid, to)) return { error: 'Войны нет' };
@@ -2031,8 +2201,8 @@ function runAction(s, pid, act) {
 export function endGame(s) {
   if (s.phase !== 'play') return 'Партия уже окончена';
   const land = p => s.map.tiles.filter(t => t.terr === p.id).length;
-  const best = s.players.filter(p => !p.out).sort((a, b) => land(b) - land(a) || gnomesOf(s, b.id) - gnomesOf(s, a.id))[0];
-  finish(s, best?.id ?? null);
+  const best = s.players.filter(p => !p.out && !p.horde).sort((a, b) => land(b) - land(a) || gnomesOf(s, b.id) - gnomesOf(s, a.id))[0];
+  finish(s, best?.id ?? null, 'end');
   return null;
 }
 
@@ -2048,7 +2218,8 @@ export function results(s, live = false) {
   return {
     turns: s.turn, killed: s.stats.killed, starved: s.stats.starved, ruins: s.stats.ruins, turned: s.stats.turned,
     history: live ? [...s.history.filter(h => h.turn !== s.turn), snapshot(s)] : s.history,
-    players: s.players.map(p => ({
+    // Войско Тугарина в итогах не царство: его строки нет. Оно всегда последнее, поэтому номера царств не сдвигаются.
+    players: s.players.filter(p => !p.horde).map(p => ({
       id: p.id, name: p.name, realm: p.realm, bot: p.bot, fellOn: p.fellOn,
       land: s.map.tiles.filter(t => t.terr === p.id).length,
       towns: townsOf(s, p.id).length,
@@ -2136,12 +2307,13 @@ export function publicState(s, viewer = null) {
   const relations = [...s.rel].map(([k, v]) => [...k.split(':').map(Number), v]);
   const orders = viewer == null ? [] : s.orders.filter(o => ownUnit(s, viewer, o.unit));
   return {
-    phase: s.phase, turn: s.turn, kind: B.turnKind(s.turn), winner: s.winner, you: viewer, dark: s.dark ?? null,
+    phase: s.phase, turn: s.turn, kind: B.turnKind(s.turn), winner: s.winner, you: viewer, dark: s.dark ?? null, hordeSeat: s.hordeSeat ?? null,
     weather: s.weather, nextWeather: s.nextWeather, notices: notices(s),
     legend: s.legend && legendView(s.legend), mods: s.mods,
     fallen: s.fallen, fallenTotal: s.fallen.reduce((sum, row) => sum + row.total, 0),
     players: s.players.map(p => ({
-      id: p.id, name: p.name, realm: p.realm, bot: p.bot, out: p.out, left: p.left, done: p.done, capital: p.capital, blight: !p.out && barren(s, p.id),
+      id: p.id, name: p.name, realm: p.realm, bot: p.bot, out: p.out, left: p.left, done: p.done, capital: p.capital, blight: !p.out && !p.horde && barren(s, p.id),
+      ...(p.horde ? { horde: true } : {}),
       ...(viewer == null ? {} : {
         mushrooms: p.mushrooms, burns: p.burns, gnomes: gnomesOf(s, p.id),
         stock: capitalOf(s, p.id)?.gnomes || 0,
@@ -2170,6 +2342,9 @@ export function publicState(s, viewer = null) {
     piers: s.players.filter(p => !p.out).flatMap(p => piersOf(s, p.id))
       .filter(p => p.realm === viewer || !g.tiles[p.land].patch?.camp || me?.known.has(p.land)),
     patches, relations,
+    // Орда Тугарина на карте: клетка и сила; после конца партии итоговый сказ и титулы.
+    horde: s.horde && s.horde.fallen == null ? { tile: s.horde.tile, power: s.horde.power, start: s.horde.start } : null,
+    ...(s.epilogue ? { epilogue: s.epilogue } : {}),
     // Перемирия всех царств: [a, b, сколько ходов осталось]. Их видно в окне «Союзы и войны» общего экрана.
     pacts: [...s.truce].map(([k, end]) => [...k.split(':').map(Number), end - s.turn]).filter(r => r[2] > 0),
     ...(s.phase === 'over' ? { results: results(s) } : {}),
@@ -2212,6 +2387,9 @@ export function restoreState(s, seed) {
   s.rand = rng32(seed);
   s.log = [];
   setDarkSeat(s.dark ?? null);
+  setHordeSeat(s.hordeSeat ?? null);
+  // Партия, сохранённая до нашествия Тугарина, тоже получает ход прихода орды.
+  if (s.hordeTurn == null) s.hordeTurn = Math.max(s.turn + 2, B.TUGARIN_TURN[0] + Math.floor(s.rand() * (B.TUGARIN_TURN[1] - B.TUGARIN_TURN[0] + 1)));
   return s;
 }
 

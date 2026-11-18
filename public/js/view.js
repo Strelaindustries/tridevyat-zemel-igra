@@ -40,7 +40,7 @@ const FOREST_THIN = 0.4, THIN_NEAR = 52, THIN_FAR = 72;
 // Кровелька светлее цвета войск: на тёмной земле ряд столбиков должен читаться через всю карту.
 const BLOOD_TINT = '46,36,32';   // кровь на постройках и горах: они чернеют вместе с землёй
 const WALKERS = 5, WALK_GAP = 11;    // переселенцев в цепочке видно не больше пяти, шаг между ними
-const ROOF = { red: '#ff5040', yellow: '#ffdc3a', blue: '#6c94ff', teal: '#2fe6b4', green: '#96e24a', copper: '#ff9440', snow: '#f6fafd', dark: '#b88cff' };
+const ROOF = { red: '#ff5040', yellow: '#ffdc3a', blue: '#6c94ff', teal: '#2fe6b4', green: '#96e24a', copper: '#ff9440', snow: '#f6fafd', dark: '#b88cff', horde: '#e0503a' };
 const LABEL_SIZE = 24;                  // подписи отрядов меняются вместе с картой
 const POST_IN = 0.09, POST_SIZE = 1, POST_FAR = 1.4;
 const REALM_TINT = 0.1;                 // прозрачность цвета царства на его клетках
@@ -743,6 +743,12 @@ export class MapView {
     this.drawRealms(ctx, names, seen);
     const placed = [];
     for (const { u, x, y } of labels.sort((a, b) => b.y - a.y)) this.drawLabel(ctx, u.named ? `${u.name} · ${u.n}` : String(u.n), FAC[factionId(u.owner)].main, x, y, placed);
+    // Над Тугарином его сила: чем меньше, тем легче его одолеть.
+    const horde = scene.horde;
+    if (horde && seen.has(horde.tile) && this.heroAt.get(horde.tile) === 'tugarin') {
+      const c = this.centers[horde.tile];
+      this.drawLabel(ctx, `Тугарин · ${horde.power}`, '#8a2418', c.x, c.y - 12, placed);
+    }
 
     const d = this.dark;
     ctx.imageSmoothingEnabled = true;

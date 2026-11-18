@@ -1,5 +1,5 @@
 // Пульт на телефоне: своя копия карты, отряды, поселения, дороги и дипломатия.
-import { MAX_SOLDIERS, R, TERRAIN, center, dist, factionOf, isWater, neighbors, reachable, setDarkSeat, tileAt } from './hex.js';
+import { MAX_SOLDIERS, R, TERRAIN, center, dist, factionOf, isWater, neighbors, reachable, setDarkSeat, setHordeSeat, tileAt } from './hex.js';
 import * as B from './balance.js';
 import { FAC, banner } from './art.js';
 import { MapView, factionId } from './view.js';
@@ -382,6 +382,10 @@ function describeTile(tile) {
   const hero = view.heroAt.get(tile);
   const town = townOn(tile), patch = patchOn(tile);
   if (town) return renderTown(town);
+  if (hero === 'tugarin') {
+    say(`Тугарин Змеевич с ордой, сила ${state.horde?.power ?? '?'}. Кто разобьёт орду, тот победит в партии. Отряд рядом с ним встретит его: бой или беда. Каждое поражение ослабляет орду`);
+    return;
+  }
   if (hero) {
     const mark = state.legend?.hero === hero ? '. Особые дар и проклятье легенды партии' : '';
     say(`${B.HEROES[hero].name}. ${HERO_MEETS[hero] ?? 'Рядом с отрядом случится встреча'}: бой или беда${mark}`);
@@ -425,7 +429,7 @@ function renderInfo() {
   else if (focus >= 0) renderTile(focus);
   else if (myTurn()) say(state.kind === 'march' ? 'Ваш ход: коснитесь отряда' : 'Ваш ход: войска стоят, переговоры в «Дипломатии»');
   else if (state?.phase === 'play') {
-    const rest = state.players.filter(p => !p.out && !p.left && !p.done).map(p => realm(p.id));
+    const rest = state.players.filter(p => !p.out && !p.left && !p.done && !p.horde).map(p => realm(p.id));
     say(rest.length ? `Ждём: ${rest.join(', ')}` : 'Новый ход…');
   }
 }
@@ -436,7 +440,7 @@ const OMEN_HEAD = 'Знамение года: ';
 const LEGEND_TAIL = 4;                      // после сказа идут дар, проклятье, знамение и концовка
 const MEET_ZOOM = 110 / (R * 1.73);         // при встрече клетка шириной 110 точек
 const WALK_MS = 320;                        // столько идёт отряд через клетку на экране телефона
-const MEET_VERB = { gorynych: 'прилетел', vodyanoy: 'выплыл', leshy: 'вышел', yaga: 'вышла', koschei: 'вышел' };
+const MEET_VERB = { gorynych: 'прилетел', vodyanoy: 'выплыл', leshy: 'вышел', yaga: 'вышла', koschei: 'вышел', tugarin: 'подступил с ордой' };
 
 // Запас и прогноз держатся вместе: строка переносится только между ними.
 function stockPart(name, have, ...next) {
@@ -600,6 +604,7 @@ function frameFirstSquad() {
 
 function apply(next) {
   setDarkSeat(next.dark);
+  setHordeSeat(next.hordeSeat);
   const fresh = next.turn !== state?.turn || next.phase !== state?.phase;
   state = next;
   me = state.you ?? me;
@@ -1133,7 +1138,7 @@ function openDiplomacy() {
     if (pause) body.append(note(pause, 'warn'));
     if (state.legend) body.append(button('Легенда', openLegend));
     for (const p of state.players) {
-      if (p.id === me || p.out) continue;
+      if (p.id === me || p.out || p.horde) continue;
       const row = document.createElement('div');
       row.className = 'realmRow';
       const name = document.createElement('div');
@@ -1237,7 +1242,7 @@ function draw(now) {
   const list = [...targetMarks(), ...marks];
   const positions = walkers(now);
   const gone = [...walks].filter(([id]) => positions.has(id) && !state.units.some(u => u.id === id)).map(([, w]) => w.ghost);
-  view.draw(ctx, dpr, cam, vw, vh, { time: now / 1000, units: [...state.units, ...gone], marks: list, ready, patches: state.patches, positions, fx: processions });
+  view.draw(ctx, dpr, cam, vw, vh, { time: now / 1000, units: [...state.units, ...gone], marks: list, ready, patches: state.patches, positions, fx: processions, horde: state.horde });
   drawTownMarks(list);
 }
 requestAnimationFrame(draw);

@@ -39,7 +39,11 @@ export const FACTIONS = [
 export const DARK = { id: 'dark', name: 'Тёмное царство' };
 let darkSeat = null;
 export const setDarkSeat = pid => { darkSeat = pid ?? null; };
-export const factionOf = pid => (pid != null && pid === darkSeat ? DARK : FACTIONS[pid]);
+// Войско Тугарина приходит в конце партии отдельной стороной и садится на следующее после царств место.
+export const HORDE = { id: 'horde', name: 'Войско Тугарина' };
+let hordeSeat = null;
+export const setHordeSeat = pid => { hordeSeat = pid ?? null; };
+export const factionOf = pid => (pid != null && pid === hordeSeat ? HORDE : pid != null && pid === darkSeat ? DARK : FACTIONS[pid]);
 
 const DIRS_EVEN = [[1, 0], [0, -1], [-1, -1], [-1, 0], [-1, 1], [0, 1]];
 const DIRS_ODD  = [[1, 0], [1, -1], [0, -1], [-1, 0], [0, 1], [1, 1]];

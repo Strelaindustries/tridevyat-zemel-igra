@@ -41,7 +41,7 @@ export const FALLEN_NAMES = {
 };
 
 // Огонь Горыныча: гибнет половина жителей острога, а если их меньше пяти, то все. Столицы он не трогает.
-export const FIRE_COST = 5;               // цена найма в грибах
+export const FIRE_COST = 10;              // цена найма в грибах (было 5)
 export const FIRE_ALL = 5;                // в остроге меньше стольких гномов сгорают все
 export const fireLoss = gnomes => (gnomes < FIRE_ALL ? gnomes : Math.ceil(gnomes / 2));
 
@@ -113,6 +113,23 @@ export const LEAN_LOSING = 1.3;
 export const LEAN_WINNING = 0.6;
 export const LEAN_ALLY = { common: 0.4, leader: -0.3 };
 export const leaned = (base, lean = 0) => clamp(base + lean, 0, 1);
+
+// Нашествие Тугарина Змеевича: так кончается партия. На случайном ходу из TUGARIN_TURN с дальнего края земли
+// приходит Тугарин со своим войском, за ход до этого дед предупреждает. Войско — отдельная сторона, она воюет со всеми:
+// сотни по 10 воинов (hordeSquads) ходят, бьют отряды и штурмуют поселения как обычные войска, их разбивают по одной.
+// Тугарин держится позади войска, в TUGARIN_BEHIND клетках от цели. Его сила TUGARIN_BASE и ещё TUGARIN_PER
+// за каждое живое царство. Отряд рядом с ним встречает его: бой или беда. Кто одолеет самого Тугарина, тот побеждает
+// в партии. Проигравший бой отряд ослабляет его на TUGARIN_WEAR за каждого своего воина, но не ниже TUGARIN_FLOOR.
+// Когда войско разбито, Тугарин идёт до поселений сам и разоряет их: острог как огнём Горыныча, столицу на треть.
+export const TUGARIN_TURN = [28, 32];
+export const TUGARIN_BASE = 30;
+export const TUGARIN_PER = 5;
+export const TUGARIN_BEHIND = 3;
+export const hordeSquads = realms => 2 + Math.ceil(realms / 2);
+export const TUGARIN_STEP = 2;
+export const TUGARIN_WEAR = 1;
+export const TUGARIN_FLOOR = 5;
+export const TUGARIN_CAPITAL = 1 / 3;
 
 // Тёмное царство (первый бот партии) бьёт и собирает грибы в полтора раза сильнее.
 export const DARK_POWER = 1.5;
@@ -281,6 +298,16 @@ export const RAID_NAME = 'Пожар в остроге';
 // burns: столько бесплатных сожжений чужой острога получает царство.
 // land: своя земля существа. Горыныч летает где хочет. dark: судьба тёмного хода, она важнее особой пары легенды.
 export const HEROES = {
+  // Тугарин не живёт на карте с начала партии: он приходит в конце, и его не трогают тёмные времена (horde).
+  tugarin: {
+    name: 'Тугарин Змеевич', power: 0, horde: true,
+    gift: { name: 'Победа над Тугарином', text: 'орда разбита, и царство побеждает в партии' },
+    curse: { name: 'Тугаринова сеча', text: 'треть отряда погибает', cut: 1 / 3 },
+    dark: {
+      gift: { name: 'Победа над Тугарином', text: 'орда разбита, и царство побеждает в партии' },
+      curse: { name: 'Тугаринова сеча', text: 'треть отряда погибает', cut: 1 / 3 },
+    },
+  },
   gorynych: {
     name: 'Змей Горыныч', power: 12,
     gift: { name: 'Змеиный огонь', text: 'Горыныч бесплатно сожжёт один чужой острог', burns: 1 },

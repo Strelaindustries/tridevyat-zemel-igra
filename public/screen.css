@@ -212,6 +212,10 @@
 #overWorld { margin: .2em 0 0; color: var(--dim); font-size: 1em; letter-spacing: .03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: lining-nums; }
 #overTale { margin-top: .1em; color: var(--dim); letter-spacing: .03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #overTale:empty { display: none; }
+/* Титулы конца партии строкой: Строитель, Воевода, Купец, Хлебосол, Устоявший. */
+#overTitles { margin-top: .35em; display: flex; flex-wrap: wrap; justify-content: center; gap: .3em 1.4em; color: var(--ink); letter-spacing: .02em; }
+#overTitles:empty { display: none; }
+#overTitles .dot { margin: 0 .3em 0 .15em; }
 #overBox button { flex: none; font-size: 1.15em; padding: .45em 1.3em; border-color: var(--yellow); color: var(--yellow); white-space: nowrap; }
 
 #overLegend { display: flex; flex-wrap: wrap; gap: .2em 1.7em; color: #d9d2c0; font-size: .95em; letter-spacing: .03em; }

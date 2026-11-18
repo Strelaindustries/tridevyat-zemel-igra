@@ -37,6 +37,8 @@ export const FAC = {
   copper: { main: '#c9732f', dark: '#ab5f26', edge: '#7c441b', shield: 'round',  weapon: 'sword',    cloth: 'swallow', emblem: 'bell',   dir: 1 },
   snow:   { main: '#d9dde0', dark: '#b9bfc4', edge: '#7f878e', shield: 'round',  weapon: 'sword',    cloth: 'swallow', emblem: 'snow',   dir: 1 },
   dark:   { main: '#4a3a5e', dark: '#382b49', edge: '#211a2c', shield: 'heater', weapon: 'axe',      cloth: 'swallow', emblem: 'moon',   dir: 1 },
+  // Войско Тугарина: чёрные знамёна с белой саблей, чёрные щиты, кривые сабли. Ни одно царство так не выглядит.
+  horde:  { main: '#3b352b', dark: '#2a2520', edge: '#120f0b', shield: 'round',  weapon: 'scimitar', cloth: 'swallow', emblem: 'saber',  dir: -1 },
 };
 
 export function seeded(seed) {
@@ -418,6 +420,14 @@ function emblem(ctx, kind, cx, cy, s) {
     ctx.beginPath();
     ctx.arc(0, -8.6, 1.9, 0, TAU);
     ctx.stroke();
+  } else if (kind === 'saber') {
+    // Войско Тугарина: белая кривая сабля.
+    ctx.strokeStyle = PAL.white;
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.moveTo(-6, 8); ctx.quadraticCurveTo(-5, -5, 7, -9); ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-10, 5); ctx.lineTo(-2, 9); ctx.stroke();
   } else if (kind === 'moon') {
     // Тёмное царство: белый месяц рогами вправо.
     ctx.fillStyle = PAL.white;

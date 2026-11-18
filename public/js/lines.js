@@ -2,7 +2,7 @@
 // а не склейка из кусков. lineFor даёт текст для события, allLines перечисляет всё, что можно записать.
 // Имена царств постоянные, поэтому каждая реплика записана заранее.
 // У события несколько формулировок: диктор не повторяется, пока не скажет все, и рассказывает партию как сказку.
-import { FACTIONS, factionOf, setDarkSeat } from './hex.js';
+import { FACTIONS, factionOf, setDarkSeat, setHordeSeat } from './hex.js';
 import { BARE_STRUCK, HEROES, RAID_NAME, WEATHER } from './balance.js';
 import { CLOSINGS, LEGENDS, OMENS, OPENINGS } from './legends.js';
 
@@ -19,6 +19,8 @@ const REALM = {
   copper: { gen: 'Медного царства', dat: 'Медному царству', ins: 'Медным царством', loc: 'Медном царстве' },
   snow:   { gen: 'Снежного царства', dat: 'Снежному царству', ins: 'Снежным царством', loc: 'Снежном царстве' },
   dark:   { gen: 'Тёмного царства', dat: 'Тёмному царству', ins: 'Тёмным царством', loc: 'Тёмном царстве' },
+  // Войско Тугарина: в родительном просто «Тугарина», чтобы шаблоны «войско X», «рать X» не двоились.
+  horde:  { gen: 'Тугарина', dat: 'Войску Тугарина', ins: 'Войском Тугарина', loc: 'Войске Тугарина' },
 };
 // with: творительный с предлогом, «со» перед сочетанием согласных: «со Снежным царством».
 const realm = pid => {
@@ -26,6 +28,43 @@ const realm = pid => {
   return { ...forms, with: `${/^[СЗШЖсзшж][^аеёиоуыэюя]/.test(forms.ins) ? 'со' : 'с'} ${forms.ins}` };
 };
 export const realmForm = (pid, form) => realm(pid)[form];   // те же падежи для подписей на экране
+
+// Нашествие Тугарина: предупреждение за ход, приход орды и разорённые поселения.
+export const hordeLine = stage => ({
+  warn: 'Пыль клубится на краю земли: идёт Тугарин Змеевич со своей ордой',
+  came: 'Пришёл Тугарин Змеевич со своим войском. Кто одолеет самого Тугарина, тот и победит в этом сказе',
+})[stage];
+export const hordeRaidLine = (pid, capital) => (capital
+  ? `Орда Тугарина разоряет столицу ${realm(pid).gen}`
+  : `Орда Тугарина разоряет острог ${realm(pid).gen}`);
+
+// Итоговый сказ в конце партии: как кончилась, кто дольше всех правил землёй, кто пал первым, и титулы.
+const TITLE_LINES = {
+  builder: n => `Строителем сказ называет ${n}: больше всех острогов поставило`,
+  warlord: n => `Воеводой сказ называет ${n}: больше всех врагов побило`,
+  merchant: n => `Купцом сказ называет ${n}: больше всех сделок заключило`,
+  host: n => `Хлебосолом сказ называет ${n}: больше всех грибов собрало`,
+  stood: n => `Устоявшим сказ называет ${n}: досталось ему больше всех, а оно выстояло`,
+};
+export const TITLE_NAMES = { builder: 'Строитель', warlord: 'Воевода', merchant: 'Купец', host: 'Хлебосол', stood: 'Устоявший' };
+export const titleLine = (key, pid) => TITLE_LINES[key](realm(pid).nom);
+const ENDINGS = {
+  horde: n => `Тугарина Змеевича одолело ${n}, на том сказ и кончился`,
+  camps: n => `${n} поставило лагеря на всех грибницах, и сказ кончился его победой`,
+  last: n => `Одно ${n} устояло из всех царств`,
+  end: n => `Победу по земле взяло ${n}`,
+};
+export const EPILOGUE_OPEN = 'Вот и сказу конец, а кто слушал, тот молодец';
+export const EPILOGUE_NONE = 'Не уцелело ни одно царство, и сказ кончился горько';
+export const leaderLine = pid => `Дольше всех землёй правило ${realm(pid).nom}`;
+export const fallenLine = pid => `Первым пало ${realm(pid).nom}`;
+export function epilogueLines({ winner, how, leader, fallen, titles }) {
+  const lines = [EPILOGUE_OPEN, winner == null ? EPILOGUE_NONE : ENDINGS[how](realm(winner).nom)];
+  if (leader != null) lines.push(leaderLine(leader));
+  if (fallen != null) lines.push(fallenLine(fallen));
+  for (const [key, pid] of titles) lines.push(titleLine(key, pid));
+  return lines;
+}
 
 // Начало отсчёта «20 секунд последним»: общий экран берёт фразы по кругу.
 export const HURRY_LINES = [
@@ -50,6 +89,7 @@ export const discordLine = (a, b, stage) => ({
 })[stage];
 
 const BEING = {
+  tugarin:  { gen: 'Тугарина Змеевича', acc: 'Тугарина Змеевича', ins: 'Тугарином Змеевичем', with: 'с Тугарином Змеевичем' },
   gorynych: { gen: 'Змея Горыныча', acc: 'Змея Горыныча', ins: 'Змеем Горынычем', with: 'со Змеем Горынычем' },
   vodyanoy: { gen: 'Водяного', acc: 'Водяного', ins: 'Водяным', with: 'с Водяным' },
   leshy:    { gen: 'Лешего', acc: 'Лешего', ins: 'Лешим', with: 'с Лешим' },
@@ -316,7 +356,7 @@ export const lineFor = (event, state) => {
 
 // Чем больше у царства земли и войска, тем оно сильнее. Сказу хватает грубой оценки.
 function ranked(state) {
-  const power = new Map(state.players.filter(p => !p.out).map(p => [p.id, 0]));
+  const power = new Map(state.players.filter(p => !p.out && !p.horde).map(p => [p.id, 0]));
   for (const [, owner] of state.terr || []) if (power.has(owner)) power.set(owner, power.get(owner) + 1);
   for (const u of state.units || []) if (power.has(u.owner)) power.set(u.owner, power.get(u.owner) + u.n);
   return [...power].map(([id, value]) => ({ id, value })).sort((x, y) => y.value - x.value);
@@ -326,7 +366,7 @@ let lastTale = null;
 // Фраза сказа после хода: каждый раз о другом, если есть о чём, и всегда о том, что сейчас на земле.
 export function taleFor(state) {
   const pick = list => list[Math.floor(Math.random() * list.length)];
-  const alive = new Set(state.players.filter(p => !p.out).map(p => p.id));
+  const alive = new Set(state.players.filter(p => !p.out && !p.horde).map(p => p.id));
   const ties = (state.relations || []).filter(([a, b]) => alive.has(a) && alive.has(b));
   const wars = ties.filter(r => r[2] === 'war'), allies = ties.filter(r => r[2] === 'ally');
   const pair = ([a, b]) => ({ a: Math.min(a, b), b: Math.max(a, b) });
@@ -356,8 +396,32 @@ export function allLines() {
     setDarkSeat(seat);
     linesInto(all);
   }
+  // Войско Тугарина: имя одно на любом месте. Бои, штурмы и разорения с каждым царством, в том числе с Тёмным.
+  for (const dark of [null, 0]) {
+    setDarkSeat(dark);
+    setHordeSeat(FACTIONS.length);
+    hordeInto(all, FACTIONS.length);
+  }
+  setHordeSeat(null);
   setDarkSeat(null);
   return [...all];
+}
+
+function hordeInto(all, h) {
+  const add = out => { for (const line of [out].flat()) if (line) all.add(line); };
+  const say = (type, data = {}, state) => add(LINES[type]({ type, ...data }, state));
+  const town = capital => ({ towns: [[0, capital ? 'capital' : 'ostrog', 0, 1]] });
+  for (const pid of FACTIONS.map((_, i) => i)) {
+    say('battle', { a: { owner: h }, d: { owner: pid } });
+    say('battle', { a: { owner: pid }, d: { owner: h } });
+    for (const capital of [false, true]) {
+      say('battle', { a: { owner: h }, d: { owner: pid, militia: true, tile: 0 } }, town(capital));
+      say('townFell', { by: h, from: pid, capital });
+    }
+    say('townFell', { by: h, from: pid, capital: false, captives: 1 });
+    say('townFell', { by: h, from: pid, capital: false, captives: 1, surrender: true });
+  }
+  say('fell', { player: h });
 }
 
 function linesInto(all) {
@@ -400,11 +464,12 @@ function linesInto(all) {
     say('dragon', { owner: pid, ostrog: 1 });
     say('dragon', { owner: pid, ostrog: null });
     for (const [key, hero] of Object.entries(HEROES)) {
-      if (key !== 'vodyanoy') say('heroFound', { by: pid, hero: key });
+      // Орду Тугарина не находят: она приходит сама, и тёмных встреч с ней не бывает.
+      if (key !== 'vodyanoy' && !hero.horde) say('heroFound', { by: pid, hero: key });
       if (key === 'gorynych') say('heroFound', { by: pid, hero: key, raid: true });
       const told = LEGENDS.filter(l => l.hero === key);
       for (const fate of [hero.curse, ...told.map(l => l.curse)]) say('encounter', { hero: key, owner: pid, text: fate.name });
-      say('encounter', { hero: key, owner: pid, dark: true });
+      if (!hero.horde) say('encounter', { hero: key, owner: pid, dark: true });
       for (const won of [true, false]) say('encounter', { hero: key, owner: pid, won });
     }
     say('encounter', { hero: 'gorynych', owner: pid, text: RAID_NAME });
@@ -447,4 +512,10 @@ function linesInto(all) {
   ];
   for (const line of told) all.add(line);
   add(HURRY_LINES);
+  add([hordeLine('warn'), hordeLine('came'), EPILOGUE_OPEN, EPILOGUE_NONE]);
+  for (const pid of realms) {
+    add([hordeRaidLine(pid, true), hordeRaidLine(pid, false), leaderLine(pid), fallenLine(pid)]);
+    add(Object.keys(TITLE_LINES).map(key => titleLine(key, pid)));
+    add(Object.values(ENDINGS).map(end => end(realm(pid).nom)));
+  }
 }
