@@ -679,6 +679,8 @@ function onEvents(events) {
     else if (e.type === 'broken' && e.to === me) toast(`${realm(e.from)} разрывает союз`);
     else if (e.type === 'deal' && e.from === me) toast(`${realm(e.to)}: согласны`);
     else if (e.type === 'refused' && e.from === me) toast(`${realm(e.to)}: отказ`);
+    else if (e.type === 'townFell' && e.loot && e.by === me) toast(`Вам перешла казна: ${realm(e.from)}, грибов +${e.loot}`);
+    else if (e.type === 'townFell' && e.loot && e.from === me) toast(`Последняя столица пала, казна ушла: ${realm(e.by)}`);
     else if (e.type === 'townFell' && e.captives && e.by === me) toast(`Острог сдался: у вас в плену гномов ${e.captives}`);
     else if (e.type === 'ransom' && e.by === me) toast(`${realm(e.owner)} выкупает пленных: грибов +${e.price}`);
     else if (e.type === 'captivesStay' && e.by === me) toast(`Пленных не выкупили: в столице гномов +${e.n}`);
@@ -912,7 +914,7 @@ function openStock() {
       ...(p.blight ? [
         stockHead('Хворь'),
         stockRow('Умрёт за ход', f.starved),
-        note('Грибов нет: столица вымирает, остроги пусты.', 'stockText'),
+        note(`Живых грибниц нет: сбора не будет. Столица, остроги и отряды едят из запаса, гриб на ${B.EAT_PER} едоков. Кончится запас, гномы начнут вымирать.`, 'stockText'),
         note('Лечение: лагерь на грибнице с дорогой до столицы или чужой лагерь.', 'stockText'),
       ] : []),
       stockHead('Гномы'),
@@ -926,7 +928,7 @@ function openStock() {
       ...(f.starved ? [stockRow(p.blight ? 'Умрут от хвори' : 'Умрут от голода', signed(-f.starved))] : []),
       ...f.losses.map(lossRow),
       stockRow('Столица изменится', signed(f.capital), true),
-      note(`Рождаются только в столице: гриб за гнома. Столица не ест, остроги и отряды едят гриб на ${B.EAT_PER} едоков. Без дороги поселение теряет жителя в ход.`, 'stockText'),
+      note(`Рождаются только в столице: гриб за гнома. Столица не ест, пока нет хвори, остроги и отряды едят гриб на ${B.EAT_PER} едоков. Без дороги поселение теряет жителя в ход.`, 'stockText'),
       stockHead('Грибы'),
       stockRow('Запас', p.mushrooms),
       stockRow('Сбор', signed(f.crop)),

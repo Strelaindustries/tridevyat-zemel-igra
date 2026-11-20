@@ -204,6 +204,10 @@ const LINES = {
   townFell: e => {
     const by = realm(e.by), from = realm(e.from);
     if (e.surrender) return [`Острог ${from.gen} сдаётся без боя`, `Ворота острога ${from.gen} открылись без боя`, `Без единого удара сдаётся острог ${from.gen}`];
+    if (e.loot) {
+      return [`${by.nom} разрушает последнюю столицу ${from.gen} и забирает казну`, `Пала последняя столица ${from.gen}, и вся казна достаётся ${by.dat}`,
+        `Казна ${from.gen} уходит ${by.dat}: последняя столица лежит в руинах`];
+    }
     if (e.captives) {
       return [`${by.nom} разрушает острог ${from.gen} и уводит гномов в плен`, `Пал острог ${from.gen}, и ${by.nom} гонит пленных гномов к себе`,
         `${by.nom} разоряет острог ${from.gen}, а гномов уводит в плен`];
@@ -484,6 +488,7 @@ function linesInto(all) {
       say('battle', { a: { owner: a }, d: { owner: b, militia: true, tile: 0 } }, town(capital));
       say('townFell', { by: a, from: b, capital });
     }
+    say('townFell', { by: a, from: b, capital: true, loot: 1 });
     say('townFell', { by: a, from: b, capital: false, captives: 1 });
     say('townFell', { by: a, from: b, capital: false, captives: 1, surrender: true });
     say('ransom', { owner: a, by: b });

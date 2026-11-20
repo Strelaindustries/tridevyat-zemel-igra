@@ -48,6 +48,11 @@ function sideOf(s, pid, path, target) {
   return free.sort((a, b) => path.cost[a] - path.cost[b])[0] ?? target;
 }
 
+// С хода BOT_DRILL_FROM строй держит часть отрядов бота (доля BOT_DRILL): они не уходят в разведку, сливаются
+// в полные отряды и без дела возвращаются на свою землю. Остальные отряды ведут себя как раньше.
+// До этого хода разведка нужна всем: так находят грибницы.
+const drilled = (s, u) => s.turn >= B.BOT_DRILL_FROM && u.id % 10 < B.BOT_DRILL * 10;
+
 const armyOf = (s, pid) => s.units.filter(u => u.owner === pid).reduce((sum, u) => sum + u.n, 0);
 
 // Хватит ли грибов на трату. После неё остаётся keep и то, чего сбору следующего хода не хватит на еду,
@@ -287,6 +292,7 @@ function chooseTarget(s, pid, path, claimed, u) {
   const short = g.tiles.filter(t => t.patch?.camp?.owner === pid).length < B.BOT_CAMPS;
   const settler = short && s.units.filter(x => x.owner === pid).sort((a, b) => a.n - b.n)[0] === u;
   const fighter = u.n >= B.BOT_STORM && !settler;
+  const drill = drilled(s, u) && !settler;
   const weak = s.players.filter(x => !x.out && atWar(s, pid, x.id)).sort((a, b) => armyOf(s, a.id) - armyOf(s, b.id))[0]?.id;
   // Новый острог берём, только если сможем его кормить и подвести дорогу.
   const spare = canSpend(s, pid, 0, 6) ? foodSpare(s, pid) : 0;
@@ -314,11 +320,15 @@ function chooseTarget(s, pid, path, claimed, u) {
       else if (c.owner !== pid && atWar(s, pid, c.owner)) rate(t.id, 12);
     }
     // Грибницы лежат далеко от столицы, поэтому разведка сразу идёт вдаль.
-    if (!p.seen.has(t.id) && !isWater(g, t.id) && !friends.includes(t.terr) && !barred(g, t.id, pid)) rate(t.id, home == null ? 0 : Math.min(B.BOT_FAR, dist(g, home, t.id)) * 2, false, true);
+    if (!drill && !p.seen.has(t.id) && !isWater(g, t.id) && !friends.includes(t.terr) && !barred(g, t.id, pid)) rate(t.id, home == null ? 0 : Math.min(B.BOT_FAR, dist(g, home, t.id)) * 2, false, true);
   }
   // Остатки разбитых отрядов идут к своим и вливаются в них.
   if (!fighter && !settler) {
     for (const m of s.units) if (m.owner === pid && m !== u && m.n < MAX_SOLDIERS) rate(m.tile, 14, true);
+  }
+  // Строевые неполные отряды сходятся, когда вдвоём помещаются в один.
+  if (drill) {
+    for (const m of s.units) if (m.owner === pid && m !== u && m.n + u.n <= MAX_SOLDIERS) rate(m.tile, 14, true);
   }
   // Пришла орда Тугарина: кто её разобьёт, тот победит. Боевые отряды идут к ней все вместе.
   if (fighter && s.horde && s.horde.fallen == null) rate(s.horde.tile, B.BOT_ASSAULT + 15, true);
@@ -327,6 +337,11 @@ function chooseTarget(s, pid, path, claimed, u) {
     for (const e of s.units) {
       if (e.owner !== pid && atWar(s, pid, e.owner) && !g.tiles.some(t => t.town?.owner === e.owner)) rate(e.tile, B.BOT_ASSAULT, true);
     }
+  }
+  // Строевому отряду вне своей земли делать нечего: он идёт на ближайшую свою клетку, где нет своих.
+  if (top < 0 && drill && g.tiles[u.tile].terr !== pid) {
+    const taken = new Set(s.units.filter(m => m.owner === pid).map(m => m.tile));
+    for (const t of g.tiles) if (t.terr === pid && !isWater(g, t.id) && !t.town && !taken.has(t.id)) rate(t.id, 0);
   }
   return top;
 }
@@ -413,8 +428,9 @@ export function botAction(s, pid, done) {
     done.add(u.id);
     // Дружину в поселении бьют штурмом: остаток удара падает на гномов.
     if (prey) return enemyTown(s, pid, prey.tile) ? { type: 'storm', unit: u.id, tile: prey.tile } : { type: 'attack', unit: u.id, target: prey.id };
-    if (u.n < B.BOT_STORM) {
-      const mate = s.units.find(m => m.owner === pid && m !== u && m.n < MAX_SOLDIERS && neighbors(g, u.tile).includes(m.tile));
+    if (u.n < B.BOT_STORM || drilled(s, u)) {
+      const fits = m => (u.n < B.BOT_STORM ? m.n < MAX_SOLDIERS : m.n + u.n <= MAX_SOLDIERS);
+      const mate = s.units.find(m => m.owner === pid && m !== u && fits(m) && neighbors(g, u.tile).includes(m.tile));
       if (mate && !s.orders.some(o => o.unit === u.id)) return { type: 'merge', unit: u.id, target: mate.id };
     }
 

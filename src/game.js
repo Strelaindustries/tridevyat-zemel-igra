@@ -209,7 +209,7 @@ export function harvestOf(s, pid) {
 // План кормления из запаса: сначала острога, затем отряды. Кто живёт в столице, еды не тратит. Лагерь снабжать не надо: он не ест и не голодает.
 // Грибы идут только по дороге: поселение без неё теряет жителя в ход, сколько бы грибов ни было в столице.
 // После еды столица растёт на выбранную игроком долю того, что осталось от сбора этого хода: один гриб даёт одного нового гнома.
-// На царство без живых грибниц падает хворь: голод бьёт сильнее, а столица вымирает, сколько бы грибов ни лежало в запасе.
+// На царство без живых грибниц падает хворь: голод бьёт сильнее, а столица тоже ест из запаса. Кому грибов хватило, тот от хвори не умирает.
 // Ход выполняет этот план, а пульт по нему показывает прогноз. Убыль в плане: [кто, сколько, причина, клетка].
 const stored = (s, p) => Math.ceil(p.mushrooms * (1 - (B.WEATHER[s.pastWeather].spoil || 0)));
 
@@ -231,8 +231,14 @@ function planFeed(s, pid, stock) {
   }
   for (const u of s.units.filter(x => x.owner === pid)) if (!eat(B.squadNeed(u.n))) changes.push([u, -Math.min(u.n, B.hunger(u.n, storm)), cause, u.tile]);
   // Гномы рождаются только в столице, на выбранную долю сбора этого хода, не ушедшего на еду: гриб за гнома.
+  // В хворь столица кормится из запаса после острогов и отрядов: сколько грибов осталось, столько гномов и сыты.
+  // Голодная часть вымирает волной.
   const home = capitalOf(s, pid);
-  if (dying && home?.gnomes) changes.push([home, -Math.min(home.gnomes, B.hunger(home.gnomes, true)), cause, s.players[pid].capital]);
+  if (dying && home?.gnomes) {
+    const fed = Math.min(home.gnomes, stock * B.EAT_PER), hungry = home.gnomes - fed;
+    eat(B.eatNeed(fed));
+    if (hungry > 0) changes.push([home, -Math.min(hungry, B.hunger(hungry, true)), cause, s.players[pid].capital]);
+  }
   const add = home?.gnomes ? Math.min(stock, Math.floor(Math.max(0, harvestOf(s, pid) - eaten) * s.players[pid].birthShare) * s.mods.growth) : 0;
   if (add > 0) {
     changes.push([home, add]);
@@ -429,6 +435,7 @@ const bareLand = s => !allPatches(s).some(t => !t.patch.dying);
 function beginRound(s) {
   const had = new Set(s.units);
   countDown(s);
+  dropLooseLand(s);
   for (const u of s.units) if (!had.has(u)) touchHeroes(s, u, u.tile);
   for (const p of s.players.filter(x => !x.out && !x.horde)) {
     drainCamps(s, p.id);
@@ -780,6 +787,31 @@ function paint(s, pid, id) {
   t.terr = pid;
 }
 
+// Земля держится, пока своими клетками связана с поселением, лагерем или отрядом своего царства.
+// Оторванная земля в начале хода становится ничьей: так пропадают обрывки после войн и походов, а остров держит стоящий на нём отряд.
+function dropLooseLand(s) {
+  const g = s.map, held = new Set(), queue = [];
+  const hold = (id, pid) => {
+    if (pid == null || held.has(id) || g.tiles[id].terr !== pid) return;
+    held.add(id);
+    queue.push(id);
+  };
+  for (const t of g.tiles) {
+    hold(t.id, t.town?.owner);
+    hold(t.id, t.patch?.camp?.owner);
+  }
+  for (const u of s.units) hold(u.tile, u.owner);
+  for (let i = 0; i < queue.length; i++) {
+    const id = queue[i];
+    for (const n of neighbors(g, id)) hold(n, g.tiles[id].terr);
+  }
+  for (const t of g.tiles) {
+    if (t.terr == null || held.has(t.id)) continue;
+    t.terr = null;
+    s.landDirty = true;
+  }
+}
+
 // Лагерь занимают приходом, ничейный острог входом. Живое поселение войска не забирают: его только разрушают.
 function capture(s, u) {
   const t = s.map.tiles[u.tile], pid = u.owner, p = s.players[pid];
@@ -951,8 +983,18 @@ function razeTown(s, t, list, surrender = false) {
   const by = top(list, v => v.n).owner, from = t.town.owner, capital = t.town.type === 'capital';
   s.players[by].tally.taken++;
   const captives = capital ? 0 : takeCaptives(s, t.town, by);
-  emit(s, 'townFell', { tile: t.id, by, from, capital, ...(captives ? { captives } : {}), ...(surrender ? { surrender } : {}) });
+  const loot = capital ? takeTreasury(s, from, by) : 0;
+  emit(s, 'townFell', { tile: t.id, by, from, capital, ...(captives ? { captives } : {}), ...(loot ? { loot } : {}), ...(surrender ? { surrender } : {}) });
   ruinTown(s, t);
+}
+
+// Пала последняя столица: вся казна побитого царства переходит тому, кто её разрушил. Войско Тугарина грибов не берёт.
+function takeTreasury(s, from, by) {
+  const loser = s.players[from], winner = s.players[by], n = loser.mushrooms;
+  if (townsOf(s, from).length > 1 || winner.horde || n <= 0) return 0;
+  loser.mushrooms = 0;
+  winner.mushrooms += n;
+  return n;
 }
 
 // Сдавшиеся гномы сами оказываются в столице захватчика и ждут выкупа. Столицы у него нет: они возвращаются домой.

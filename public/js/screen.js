@@ -374,6 +374,7 @@ class Rubble {
 
 const fellLine = e => {
   if (e.surrender) return `Острог ${realmOf(e.from)} сдаётся без боя: ${named(e.by)} уводит в плен гномов: ${e.captives}`;
+  if (e.loot) return `${named(e.by)} разрушает последнюю столицу ${realmOf(e.from)} и забирает казну: грибов ${e.loot}`;
   const razed = `${named(e.by)} разрушает ${e.capital ? 'столицу' : 'острог'} ${realmOf(e.from)}`;
   return e.captives ? `${razed}, в плен уведено гномов: ${e.captives}` : razed;
 };
