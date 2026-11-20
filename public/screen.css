@@ -301,6 +301,8 @@
 .tiesRow { display: grid; grid-template-columns: 7em minmax(0, 1fr) auto; gap: 1em; align-items: center; text-align: left; padding: .25vh 0; border-top: 1px solid #2c2a22; }
 .tiesRow b { font-weight: 500; color: #8fd16a; }
 .tiesRow b.war { color: #e5483b; }
+.tiesRow b.trade { color: #e2b64a; }
+.tiesLegend i.dots { background: repeating-linear-gradient(90deg, #e2b64a 0 .25em, transparent .25em .8em); }
 .tiesRow small { color: var(--dim); font-size: .9em; }
 .tiesDot { display: inline-block; width: .8em; height: .8em; border-radius: 50%; margin: 0 .35em 0 .15em; vertical-align: -.05em; }
 #lobbySettings { margin-top: 10px; }

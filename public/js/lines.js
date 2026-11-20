@@ -136,12 +136,15 @@ const DEALS = {
   ally: (a, b) => [`${a.nom} и ${b.nom} заключают союз`, `${a.nom} и ${b.nom} теперь союзники`, `Побратались ${a.nom} и ${b.nom}: быть им в союзе`],
   peace: (a, b) => [`${a.nom} и ${b.nom} заключают мир`, `Помирились ${a.nom} и ${b.nom}`, `Сложили оружие ${a.nom} и ${b.nom}, наступил мир`],
   trade: (a, b) => [`${a.nom} и ${b.nom} заключают сделку`, `${a.nom} и ${b.nom} ударили по рукам`, `Сторговались ${a.nom} и ${b.nom}`],
+  embassy: (a, b) => [`${a.nom} и ${b.nom} обмениваются посольствами`, `Поехали послы: ${a.nom} и ${b.nom} открыли посольства`,
+    `В столицах ${a.gen} и ${b.gen} теперь сидят послы`],
 };
 const REFUSED = {
   ally: (to, from) => [`${to.nom} отказывает ${from.dat} в союзе`, `${to.nom} не хочет союза ${from.with}`],
   peace: (to, from) => [`${to.nom} отказывает ${from.dat} в мире`, `${to.nom} не хочет мира ${from.with}`],
   trade: (to, from) => [`${to.nom} отказывает ${from.dat} в сделке`, `${to.nom} не хочет торговать ${from.with}`],
   pass: (to, from) => [`${to.nom} отказывает ${from.dat} в пропуске`, `${to.nom} не пускает ${from.nom} на свои земли`],
+  embassy: (to, from) => [`${to.nom} не принимает послов ${from.gen}`, `${to.nom} отказывает ${from.dat} в посольстве`],
 };
 
 const inTown = (state, tile) => state?.towns?.find(t => t[0] === tile);
@@ -241,6 +244,18 @@ const LINES = {
   fell: e => {
     const p = realm(e.player);
     return [`Пало ${p.nom}`, `Не устояло ${p.nom}: пало оно под ударами врагов`, `Вот и пало ${p.nom}, осталась от него одна сказка`];
+  },
+  tradeOpen: e => {
+    const a = realm(e.a), b = realm(e.b);
+    return [`Открылся торговый путь между ${a.ins} и ${b.ins}`, `Дорога связала столицы: ${a.nom} и ${b.nom} начали торговать`,
+      `Пошли обозы с грибами: ${a.nom} торгует с ${b.ins}`];
+  },
+  tradeCut: e => {
+    const a = realm(e.a), b = realm(e.b);
+    if (e.war) return [`Война перерезала торговый путь между ${a.ins} и ${b.ins}`, `Встали обозы: ${a.nom} и ${b.nom} воюют и больше не торгуют`,
+      `Кончилась торговля между ${a.ins} и ${b.ins}: на дороге теперь войска`];
+    return [`Прервался торговый путь между ${a.ins} и ${b.ins}`, `Дорога между ${a.ins} и ${b.ins} оборвалась, и торговля встала`,
+      `${a.nom} и ${b.nom} больше не торгуют: путь между столицами прервался`];
   },
   blight: e => {
     const p = realm(e.player);
@@ -496,9 +511,10 @@ function linesInto(all) {
     say('war', { from: a, to: b });
     say('war', { from: a, to: b, joined: a });
     say('broken', { from: a, to: b });
+    if (a < b) for (const type of ['tradeOpen', 'tradeCut']) for (const war of [false, true]) if (type === 'tradeCut' || !war) say(type, { a, b, ...(war ? { war } : {}) });
     say('borderShut', { from: a, to: b });
     say('fire', { from: a, owner: b });
-    for (const kind of ['ally', 'peace', 'trade', 'pass']) {
+    for (const kind of ['ally', 'peace', 'trade', 'pass', 'embassy']) {
       say('deal', { from: a, to: b, kind });
       say('refused', { from: a, to: b, kind });
     }

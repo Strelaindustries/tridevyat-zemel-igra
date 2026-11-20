@@ -1,7 +1,7 @@
 // Общий экран: вся карта целиком, а когда все сходили, показ хода:
 // чёрный экран, мультик на карте и слайды. Телефоны ждут, пока показ не кончится.
 import { R, center, factionOf, isWater, setDarkSeat, setHordeSeat } from './hex.js';
-import { FALLEN_NAMES, GOAL, HEROES, TURN_HINTS, TURN_NAMES, WEATHER } from './balance.js';
+import { FALLEN_NAMES, GOAL, HEROES, TRADE_CUT, TURN_HINTS, TURN_NAMES, WEATHER } from './balance.js';
 import { FAC, STRIKE, banner, dragonFlight, paintObject, soldier, soldierShadow, seeded } from './art.js';
 import { MapView, factionId, formation } from './view.js';
 import { Battle, BATTLE_TIME } from './battle.js';
@@ -397,7 +397,7 @@ const foundLine = e => {
 
 
 // Первый слайд: порядок ключей это порядок важности, самое громкое стоит выше.
-const OFFER_NAMES = { ally: 'союз', peace: 'мир', trade: 'сделку', pass: 'пропуск' };
+const OFFER_NAMES = { ally: 'союз', peace: 'мир', trade: 'сделку', pass: 'пропуск', embassy: 'посольство' };
 const NOTICES = {
   fell: e => [`Пало царство: ${named(e.player)}`, [e.player]],
   blight: e => [`На царство пала хворь: ${named(e.player)}`, [e.player]],
@@ -407,8 +407,10 @@ const NOTICES = {
     : [`${named(e.from)} хочет посадить на кол ${named(e.to)}`, [e.from, e.to]]),
   deal: e => (e.kind === 'pass'
     ? [`${named(e.to)} открывает границу: ${named(e.from)}`, [e.to, e.from]]
-    : [`${{ ally: 'Союз', peace: 'Мир', trade: 'Сделка' }[e.kind]}: ${named(e.from)} и ${named(e.to)}`, [e.from, e.to]]),
+    : [`${{ ally: 'Союз', peace: 'Мир', trade: 'Сделка', embassy: 'Посольства' }[e.kind]}: ${named(e.from)} и ${named(e.to)}`, [e.from, e.to]]),
   broken: e => [`Союз разорван: ${named(e.from)} и ${named(e.to)}`, [e.from, e.to]],
+  tradeOpen: e => [`Открылся торговый путь: ${named(e.a)} и ${named(e.b)}, гномы обоих едят на ${Math.round(TRADE_CUT * 100)}% меньше`, [e.a, e.b]],
+  tradeCut: e => [`${e.war ? 'Война перерезала' : 'Прервался'} торговый путь: ${named(e.a)} и ${named(e.b)}`, [e.a, e.b]],
   ransom: e => [`${named(e.owner)} выкупает пленных у ${realmOf(e.by)}: гномов ${e.n} за ${e.price} гр.`, [e.owner, e.by]],
   captivesStay: e => [`Пленные ${realmOf(e.owner)} остаются у ${realmOf(e.by)}: гномов ${e.n}`, [e.by, e.owner]],
   captivesFreed: e => [`Пленные ${realmOf(e.owner)} вернулись домой: гномов ${e.n}`, [e.owner]],
@@ -1524,7 +1526,7 @@ function renderTies() {
   if (!tiesOpen || !shown) return;
   const army = {};
   for (const u of shown.units || []) army[u.owner] = (army[u.owner] || 0) + u.n;
-  const { svg, list } = tiesView({ players: shown.players.filter(p => !p.horde), relations: shown.relations || [], pacts: shown.pacts || [], army });
+  const { svg, list } = tiesView({ players: shown.players.filter(p => !p.horde), relations: shown.relations || [], pacts: shown.pacts || [], trade: shown.trade || [], army });
   $('tiesDraw').innerHTML = svg;
   $('tiesList').innerHTML = list;
 }

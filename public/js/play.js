@@ -43,6 +43,9 @@ const covered = () => !$('turnCover').classList.contains('hidden');
 const DOT = '\uE000';
 const tagged = (id, name) => `${DOT}${id}${DOT}${name}`;
 const realm = id => tagged(id, factionOf(id).name);
+// Есть ли у меня торговый путь с этим царством.
+const trades = id => (state?.trade || []).some(([a, b]) => (a === me && b === id) || (b === me && a === id));
+const embassy = id => (state?.embassies || []).some(([a, b]) => (a === me && b === id) || (b === me && a === id));
 
 function dot(id) {
   const mark = document.createElement('i');
@@ -679,6 +682,8 @@ function onEvents(events) {
     else if (e.type === 'broken' && e.to === me) toast(`${realm(e.from)} разрывает союз`);
     else if (e.type === 'deal' && e.from === me) toast(`${realm(e.to)}: согласны`);
     else if (e.type === 'refused' && e.from === me) toast(`${realm(e.to)}: отказ`);
+    else if (e.type === 'tradeOpen' && (e.a === me || e.b === me)) toast(`Открылся торговый путь: ${realm(e.a === me ? e.b : e.a)}, гномы едят на ${Math.round(B.TRADE_CUT * 100)}% меньше`);
+    else if (e.type === 'tradeCut' && (e.a === me || e.b === me)) toast(`Торговый путь прервался: ${realm(e.a === me ? e.b : e.a)}`);
     else if (e.type === 'townFell' && e.loot && e.by === me) toast(`Вам перешла казна: ${realm(e.from)}, грибов +${e.loot}`);
     else if (e.type === 'townFell' && e.loot && e.from === me) toast(`Последняя столица пала, казна ушла: ${realm(e.by)}`);
     else if (e.type === 'townFell' && e.captives && e.by === me) toast(`Острог сдался: у вас в плену гномов ${e.captives}`);
@@ -932,12 +937,15 @@ function openStock() {
       stockHead('Грибы'),
       stockRow('Запас', p.mushrooms),
       stockRow('Сбор', signed(f.crop)),
+
       ...(f.flooded ? [stockRow('Зальёт гроза', signed(-f.flooded))] : []),
       stockRow('Съедят', signed(-f.eaten)),
+      ...(f.trade ? [stockRow('Сберегут торговые пути', f.trade)] : []),
       ...(f.born ? [stockRow('На новых гномов', signed(-f.born))] : []),
       stockRow('Останется', p.mushrooms + f.mushrooms, true),
       ...shareBlock(),
       note('Грибы дают только лагеря на грибницах, если к ним есть дорога или лодочка. Столица и острога грибов не приносят. Кончатся грибницы, придёт хворь.', 'stockText'),
+      note(`Торговый путь: посольства с соседом и дорога от вашей столицы до его столицы по вашей и его земле. Пока вы не воюете, гномы едят на ${Math.round(B.TRADE_CUT * 100)}% меньше за каждый путь, всего не больше чем на ${Math.round(B.TRADE_MAX * 100)}%.`, 'stockText'),
       stockHead('Погода'),
       stockRow('Сейчас', B.WEATHER[state.weather].name),
       stockRow('Следующий ход', B.WEATHER[state.nextWeather].name),
@@ -983,7 +991,7 @@ const bundleText = b => {
   return parts.join(', ') || 'ничего';
 };
 
-const OFFER_NAMES = { trade: 'сделку', ally: 'союз', peace: 'мир', pass: 'пропуск' };
+const OFFER_NAMES = { trade: 'сделку', ally: 'союз', peace: 'мир', pass: 'пропуск', embassy: 'посольство' };
 const TRUCE_TEXT = `Ещё ${B.TRUCE_TURNS} ходов никто из вас не сможет напасть снова`;
 
 const offerTerms = o => (o.kind === 'trade'
@@ -1123,6 +1131,16 @@ function openPass(p) {
   });
 }
 
+function openEmbassy(p) {
+  let gift = 0;
+  openSheet(`Посольство: ${realm(p.id)}`, body => {
+    body.append(note(`Царства обмениваются послами. С посольствами и дорогой от столицы до столицы по вашей и их земле открывается торговый путь: гномы обоих едят на ${Math.round(B.TRADE_CUT * 100)}% меньше. Война закрывает посольства.`));
+    body.append(stepper(`Подарок, грибы, есть ${free().mushrooms}`, gift, free().mushrooms, n => { gift = n; renderSheet(); }));
+    if (p.bot) body.append(scaleBar('Шанс согласия', B.embassyChance(gift)));
+    body.append(button('Предложить посольство', () => offerGift(p, 'embassy', gift), talkable()));
+  });
+}
+
 const RELATION = { peace: 'Мир', war: 'Война', ally: 'Союз' };
 
 // Вместе с целью на войну встают её союзники: так начинается любая война.
@@ -1151,7 +1169,7 @@ function openDiplomacy() {
       const rel = relationTo(p.id), truce = warBar(p.id);
       const pass = (host, guest) => state.passes.some(x => x[0] === host && x[1] === guest);
       const ours = pass(p.id, me), theirs = pass(me, p.id);
-      about.textContent = `${RELATION[rel]} · ${p.bot ? 'бот' : p.name} · грибы ${p.mushrooms}, гномы на балансе ${p.stock}${p.blight ? ' · хворь' : ''}${truce ? ` · перемирие, ходов ${truce}` : ''}${ours ? ' · у вас пропуск' : ''}${theirs ? ' · у них пропуск' : ''}`;
+      about.textContent = `${RELATION[rel]} · ${p.bot ? (p.nature ? `бот-${p.nature}` : 'бот') : p.name} · грибы ${p.mushrooms}, гномы на балансе ${p.stock}${p.blight ? ' · хворь' : ''}${trades(p.id) ? ' · торговый путь' : embassy(p.id) ? ' · посольство' : ''}${truce ? ` · перемирие, ходов ${truce}` : ''}${ours ? ' · у вас пропуск' : ''}${theirs ? ' · у них пропуск' : ''}`;
       const buttons = document.createElement('div');
       buttons.className = 'row';
       const leave = fn => () => { closeSheet(); fn(); };
@@ -1170,6 +1188,7 @@ function openDiplomacy() {
       if (rel === 'peace') {
         gates.append(button(ours ? 'Пропуск есть' : asked('pass') ? 'Пропуск: уже предложен' : 'Пропуск', () => openPass(p), open && !ours && !asked('pass')));
       }
+      if (rel !== 'war') gates.append(button(embassy(p.id) ? 'Посольство есть' : asked('embassy') ? 'Посольство: уже предложено' : 'Посольство', () => openEmbassy(p), open && !embassy(p.id) && !asked('embassy')));
       gates.append(button('Отдать клетку', leave(() => startGive(p.id)), open));
       if (theirs) gates.append(button('Закрыть границу', leave(() => command({ type: 'shut', other: p.id })), open));
       row.append(name, about, buttons, gates);

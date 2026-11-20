@@ -5,8 +5,9 @@
 // чтобы линии пересекались как можно реже: союзники рядом, враги напротив.
 import { factionOf } from './hex.js';
 import { FAC } from './art.js';
+import { TRADE_CUT } from './balance.js';
 
-const ALLY = '#8fd16a', WAR = '#e5483b', TRUCE = '#a89c84', INK = '#f2efe6', DIM = '#a89c84';
+const ALLY = '#8fd16a', WAR = '#e5483b', TRUCE = '#a89c84', TRADE = '#e2b64a', INK = '#f2efe6', DIM = '#a89c84';
 const LIGHT = new Set(['yellow', 'snow']);   // на светлом кружке число войска пишется тёмным
 
 const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -98,7 +99,7 @@ function arrange(ids, rel, groups) {
 }
 
 // players: [{id, out}], relations: [a, b, 'ally'|'war'], pacts: [a, b, ходов], army: {id: воинов}.
-export function tiesView({ players, relations, pacts = [], army = {} }) {
+export function tiesView({ players, relations, pacts = [], trade = [], army = {} }) {
   const alive = players.filter(p => !p.out).map(p => p.id);
   const live = new Set(alive);
   const rel = relations.filter(([a, b]) => live.has(a) && live.has(b));
@@ -150,6 +151,9 @@ export function tiesView({ players, relations, pacts = [], army = {} }) {
     parts.push(`<text x="${((p.x + q.x) / 2).toFixed(1)}" y="${((p.y + q.y) / 2 - 8).toFixed(1)}" fill="${DIM}" font-size="22" text-anchor="middle">мир ${left}</text>`);
   }
   for (const [a, b, kind] of rel) parts.push(kind === 'war' ? line(a, b, WAR, 6) : line(a, b, ALLY, 9));
+  // Торговый путь: золотая точечная нить поверх союза или мира.
+  const routes = trade.filter(([a, b]) => live.has(a) && live.has(b));
+  for (const [a, b] of routes) parts.push(line(a, b, TRADE, 4, '2 10'));
 
   // Царства: кружок цвета знамени, внутри войско, снаружи имя.
   for (const id of order) {
@@ -174,8 +178,9 @@ export function tiesView({ players, relations, pacts = [], army = {} }) {
   }
   const wars = rel.filter(r => r[2] === 'war');
   for (const [a, b] of wars) rows.push(`<div class="tiesRow"><b class="war">Война</b><span>${who(a)} — ${who(b)}</span><small>${army[a] || 0} против ${army[b] || 0}</small></div>`);
-  if (!unions.length && !wars.length) rows.push(`<div class="tiesRow wide"><span>${rel.length ? 'Коалиций и войн нет, союзы видны на схеме' : 'Пока все живут в мире и без союзов'}</span></div>`);
-  const legend = `<div class="tiesLegend"><span><i style="background:${ALLY}"></i>союз</span><span><i style="background:${WAR}"></i>война</span><span><i class="dash"></i>перемирие, ходов</span><span>в кружке — войско</span></div>`;
+  for (const [a, b] of routes) rows.push(`<div class="tiesRow"><b class="trade">Торговля</b><span>${who(a)} — ${who(b)}</span><small>еда −${Math.round(TRADE_CUT * 100)}%</small></div>`);
+  if (!unions.length && !wars.length && !routes.length) rows.push(`<div class="tiesRow wide"><span>${rel.length ? 'Коалиций и войн нет, союзы видны на схеме' : 'Пока все живут в мире и без союзов'}</span></div>`);
+  const legend = `<div class="tiesLegend"><span><i style="background:${ALLY}"></i>союз</span><span><i style="background:${WAR}"></i>война</span><span><i class="dash"></i>перемирие, ходов</span><span><i class="dots"></i>торговый путь</span><span>в кружке — войско</span></div>`;
   // Войн больше трёх: они идут в две колонки, коалиции по-прежнему во всю ширину.
-  return { svg, list: `${legend}<div class="tiesGrid${wars.length > 3 ? ' two' : ''}">${rows.join('')}</div>` };
+  return { svg, list: `${legend}<div class="tiesGrid${wars.length + routes.length > 3 ? ' two' : ''}">${rows.join('')}</div>` };
 }

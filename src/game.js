@@ -90,14 +90,15 @@ export function newGame(seats, seed = Math.floor(Math.random() * 1e9), { legend 
       id: i, name: p.name, realm: factionOf(i).name, bot: !!p.bot, out: false, left: false, done: false, capital: map.capitals[i],
       mushrooms: B.START.mushrooms + mods.mushrooms,
       known: new Set(), seen: new Set(), hints: 0, fellOn: null, raids: 0, darks: 0, burns: 0, homeLeft: B.CAPITAL_STOCK, birthShare: B.BIRTH_SHARE,
-      tally: { picked: 0, killed: 0, lost: 0, taken: 0, burned: 0, roads: 0, built: 0, deals: 0 },
+      tally: { picked: 0, killed: 0, lost: 0, taken: 0, burned: 0, roads: 0, built: 0, deals: 0 }, grudges: {},
     })),
-    units: [], rel: new Map(), truce: new Map(), allySince: new Map(), offers: [], plagued: 0, sick: [], heroes: new Set(), history: [],
+    units: [], rel: new Map(), truce: new Map(), allySince: new Map(), trade: new Set(), embassies: new Set(), offers: [], plagued: 0, sick: [], heroes: new Set(), history: [],
     landDirty: false, stats: { rot: 0, turned: 0, ruins: 0, faded: 0, starved: 0, killed: 0, sieges: 0 }, dark,
   };
   s.nextDispute = B.DISPUTE_FIRST[0] + Math.floor(s.rand() * (B.DISPUTE_FIRST[1] - B.DISPUTE_FIRST[0] + 1));
   s.hordeTurn = B.TUGARIN_TURN[0] + Math.floor(s.rand() * (B.TUGARIN_TURN[1] - B.TUGARIN_TURN[0] + 1));
   s.horde = null;
+  for (const p of s.players) if (p.bot) p.nature = natureFor(s, p.id);
   map.capitals.forEach((id, owner) => {
     map.tiles[id].town = { type: 'capital', owner, gnomes: B.START.gnomes, empty: 0 };
     for (const t of map.tiles) {
@@ -127,6 +128,59 @@ export function newGame(seats, seed = Math.floor(Math.random() * 1e9), { legend 
   record(s);
   return s;
 }
+
+// Посольства: царства обменялись послами. Без них торгового пути нет, война их закрывает.
+export const hasEmbassy = (s, a, b) => !!s.embassies?.has(pairKey(a, b));
+
+// Торговый путь: от столицы одного царства до столицы другого по дорогам и поселениям земли этих двух царств.
+// Царства не воюют, оба живы и обменялись посольствами. Ключ пути — пара номеров через двоеточие, меньший первым.
+export function tradeRoutes(s) {
+  const g = s.map, out = new Set();
+  const alive = s.players.filter(p => !p.out && !p.horde && p.capital != null);
+  for (const a of alive) {
+    for (const b of alive) {
+      if (b.id <= a.id || atWar(s, a.id, b.id) || !hasEmbassy(s, a.id, b.id)) continue;
+      const pass = t => (t.road || t.town?.owner === a.id || t.town?.owner === b.id) && (t.terr === a.id || t.terr === b.id);
+      const seen = new Set([a.capital]), queue = [a.capital];
+      for (let i = 0; i < queue.length && !seen.has(b.capital); i++) {
+        for (const n of neighbors(g, queue[i])) {
+          if (seen.has(n) || !pass(g.tiles[n])) continue;
+          seen.add(n);
+          queue.push(n);
+        }
+      }
+      if (seen.has(b.capital)) out.add(pairKey(a.id, b.id));
+    }
+  }
+  return out;
+}
+
+export const tradePartners = (s, pid) => [...(s.trade || [])].map(k => k.split(':').map(Number)).filter(pair => pair.includes(pid)).map(([a, b]) => (a === pid ? b : a));
+
+// Новый круг: пути открываются и рвутся, дед об этом говорит.
+function updateTrade(s) {
+  const now = tradeRoutes(s), was = s.trade || new Set();
+  for (const k of now) {
+    if (was.has(k)) continue;
+    const [a, b] = k.split(':').map(Number);
+    emit(s, 'tradeOpen', { a, b });
+  }
+  for (const k of was) {
+    if (now.has(k)) continue;
+    const [a, b] = k.split(':').map(Number);
+    if (s.players[a].out || s.players[b].out) continue;
+    emit(s, 'tradeCut', { a, b, ...(atWar(s, a, b) ? { war: true } : {}) });
+  }
+  s.trade = now;
+}
+
+// Нрав бота выпадает случайно, Тёмное царство всегда воевода.
+const NATURE_KEYS = Object.keys(B.NATURES);
+const natureFor = (s, pid) => (pid === s.dark ? 'warlord' : NATURE_KEYS[Math.floor(s.rand() * NATURE_KEYS.length)]);
+
+// Обида свежая: обидчик напал на царство или разорвал с ним союз не больше GRUDGE_TURNS ходов назад.
+export const grudge = (s, pid, other) => s.turn - (s.players[pid].grudges?.[other] ?? -Infinity) <= B.GRUDGE_TURNS;
+const offend = (s, victim, by) => { (s.players[victim].grudges ||= {})[by] = s.turn; };
 
 const towns = s => s.map.tiles.filter(t => t.town);
 const townsOf = (s, pid) => towns(s).filter(t => t.town.owner === pid);
@@ -215,11 +269,19 @@ const stored = (s, p) => Math.ceil(p.mushrooms * (1 - (B.WEATHER[s.pastWeather].
 
 function planFeed(s, pid, stock) {
   const net = roadNet(s, pid), dying = barren(s, pid), storm = dying || !!B.WEATHER[s.pastWeather].spoil, cause = dying ? 'blight' : 'hunger';
-  let eaten = 0;
-  const eat = need => {
-    if (stock < need) return false;
-    stock -= need;
-    eaten += need;
+  // Торговые пути сберегают еду: часть всей нужды кормится без запаса.
+  const home = capitalOf(s, pid);
+  const cut = Math.min(B.TRADE_MAX, tradePartners(s, pid).length * B.TRADE_CUT);
+  const need = townsOf(s, pid).filter(t => t.town.gnomes && t.town.type !== 'capital' && net.has(t.id)).reduce((sum, t) => sum + B.eatNeed(t.town.gnomes), 0)
+    + s.units.filter(x => x.owner === pid).reduce((sum, u) => sum + B.squadNeed(u.n), 0) + (dying && home?.gnomes ? B.eatNeed(home.gnomes) : 0);
+  let eaten = 0, free = Math.floor(need * cut), saved = 0;
+  const eat = want => {
+    const use = Math.min(free, want);
+    if (stock < want - use) return false;
+    free -= use;
+    saved += use;
+    stock -= want - use;
+    eaten += want - use;
     return true;
   };
   const changes = [];
@@ -233,9 +295,8 @@ function planFeed(s, pid, stock) {
   // Гномы рождаются только в столице, на выбранную долю сбора этого хода, не ушедшего на еду: гриб за гнома.
   // В хворь столица кормится из запаса после острогов и отрядов: сколько грибов осталось, столько гномов и сыты.
   // Голодная часть вымирает волной.
-  const home = capitalOf(s, pid);
   if (dying && home?.gnomes) {
-    const fed = Math.min(home.gnomes, stock * B.EAT_PER), hungry = home.gnomes - fed;
+    const fed = Math.min(home.gnomes, (stock + free) * B.EAT_PER), hungry = home.gnomes - fed;
     eat(B.eatNeed(fed));
     if (hungry > 0) changes.push([home, -Math.min(hungry, B.hunger(hungry, true)), cause, s.players[pid].capital]);
   }
@@ -244,7 +305,7 @@ function planFeed(s, pid, stock) {
     changes.push([home, add]);
     stock -= add;
   }
-  return { stock, eaten, changes };
+  return { stock, eaten, saved, changes };
 }
 
 const bornOf = changes => changes.reduce((sum, [, delta]) => sum + Math.max(0, delta), 0);
@@ -303,7 +364,7 @@ function forecast(s, pid) {
   const lost = plan.changes.filter(([, delta]) => delta < 0);
   const cost = cause => lost.filter(row => row[2] === cause).reduce((sum, [, delta]) => sum - delta, 0);
   return {
-    crop, eaten: plan.eaten, flooded,
+    crop, trade: plan.saved, eaten: plan.eaten, flooded,
     mushrooms: p.mushrooms - mushrooms,
     capital: (capitalOf(next, pid)?.gnomes || 0) - capital,
     born: bornOf(plan.changes),
@@ -396,7 +457,7 @@ function upkeep(s, pid) {
   }
   s.units = s.units.filter(u => u.n > 0);
   // Войско Тугарина не ест и грибов не собирает.
-  if (p.horde) return { crop: 0, plan: { stock: 0, eaten: 0, changes: [] } };
+  if (p.horde) return { crop: 0, plan: { stock: 0, eaten: 0, saved: 0, changes: [] } };
   const crop = harvestOf(s, pid);
   for (const t of pickingCamps(s, pid)) t.patch.rotBy = pid;
   p.mushrooms = stored(s, p) + crop;
@@ -436,6 +497,7 @@ function beginRound(s) {
   const had = new Set(s.units);
   countDown(s);
   dropLooseLand(s);
+  updateTrade(s);
   for (const u of s.units) if (!had.has(u)) touchHeroes(s, u, u.tile);
   for (const p of s.players.filter(x => !x.out && !x.horde)) {
     drainCamps(s, p.id);
@@ -1978,7 +2040,7 @@ function transfer(s, from, to, b) {
   }
 }
 
-const OFFER_KINDS = ['ally', 'trade', 'peace', 'pass'];
+const OFFER_KINDS = ['ally', 'trade', 'peace', 'pass', 'embassy'];
 const askKey = (a, b, kind) => `${pairKey(a, b)}:${kind}`;
 
 export function cmdOffer(s, pid, { to, kind, give, take }) {
@@ -1994,6 +2056,8 @@ export function cmdOffer(s, pid, { to, kind, give, take }) {
   if (kind === 'pass' && atWar(s, pid, to)) return { error: 'Сначала заключите мир' };
   if (kind === 'pass' && allied(s, pid, to)) return { error: 'Союзникам пропуск не нужен' };
   if (kind === 'pass' && hasPass(s, to, pid)) return { error: 'Пропуск уже есть' };
+  if (kind === 'embassy' && atWar(s, pid, to)) return { error: 'Сначала заключите мир' };
+  if (kind === 'embassy' && hasEmbassy(s, pid, to)) return { error: 'Посольства уже есть' };
   if (s.offers.some(o => o.from === pid && o.to === to)) return { error: 'Ответа ещё нет' };
   // Бот отвечает на каждый вид предложения раз за ход: иначе отказ ничего не стоит, а шкала шанса ничего не значит.
   // Люди договариваются сколько хотят, раз за ход ограничен только союз.
@@ -2028,14 +2092,16 @@ export function botLean(s, bot, other, kind) {
   if (kind === 'peace') {
     if (!atWar(s, bot, other)) return 0;
     const ratio = warSide(s, other, bot) / Math.max(1, warSide(s, bot, other));
-    return ratio >= B.LEAN_LOSING ? B.LEAN_PEACE.losing : ratio >= 1 ? B.LEAN_PEACE.even : ratio <= B.LEAN_WINNING ? B.LEAN_PEACE.winning : 0;
+    const nature = B.NATURES[s.players[bot].nature]?.peace ?? 0;
+    return nature + (ratio >= B.LEAN_LOSING ? B.LEAN_PEACE.losing : ratio >= 1 ? B.LEAN_PEACE.even : ratio <= B.LEAN_WINNING ? B.LEAN_PEACE.winning : 0);
   }
+  if (kind === 'embassy') return ((B.NATURES[s.players[bot].nature]?.trade ?? 1) - 1) * 0.1 - (grudge(s, bot, other) ? B.GRUDGE_ALLY : 0);
   if (kind !== 'ally') return 0;
   const alive = s.players.filter(p => !p.out), mine = powerOf(s, bot), theirs = powerOf(s, other);
   const top = Math.max(0, ...alive.map(p => powerOf(s, p.id)));
   const common = alive.some(p => p.id !== bot && p.id !== other && powerOf(s, p.id) > Math.max(mine, theirs)
     && (atWar(s, p.id, bot) || atWar(s, p.id, other) || powerOf(s, p.id) === top));
-  return (common ? B.LEAN_ALLY.common : 0) + (theirs === top && theirs > mine * 1.5 ? B.LEAN_ALLY.leader : 0);
+  return (common ? B.LEAN_ALLY.common : 0) + (theirs === top && theirs > mine * 1.5 ? B.LEAN_ALLY.leader : 0) - (grudge(s, bot, other) ? B.GRUDGE_ALLY : 0);
 }
 
 export function offerChance(s, offer) {
@@ -2044,6 +2110,7 @@ export function offerChance(s, offer) {
   if (offer.kind === 'ally') return B.leaned(B.allyChance(offer.give.mushrooms, war), lean);
   if (offer.kind === 'peace') return B.leaned(B.peaceChance(offer.give.mushrooms), lean);
   if (offer.kind === 'pass') return B.passChance(offer.give.mushrooms);
+  if (offer.kind === 'embassy') return B.leaned(B.embassyChance(offer.give.mushrooms), lean);
   return B.dealChance(bundleValue(s, offer.give), bundleValue(s, offer.take), war);
 }
 
@@ -2057,7 +2124,7 @@ export function cmdAnswer(s, pid, offerId, accept) {
     emit(s, 'refused', { from: offer.from, to: offer.to, kind: offer.kind });
     return null;
   }
-  if (offer.kind === 'pass' && atWar(s, offer.from, offer.to)) return 'Условия больше не выполнить';
+  if ((offer.kind === 'pass' || offer.kind === 'embassy') && atWar(s, offer.from, offer.to)) return 'Условия больше не выполнить';
   if (offer.kind === 'peace' && !atWar(s, offer.from, offer.to)) return 'Мир уже заключён';
   if (!canPay(s, offer.from, offer.give) || !canPay(s, offer.to, offer.take)) return 'Условия больше не выполнить';
   transfer(s, offer.from, offer.to, offer.give);
@@ -2069,6 +2136,7 @@ export function cmdAnswer(s, pid, offerId, accept) {
     s.allySince.set(pair, s.turn);
   }
   if (offer.kind === 'pass') s.passes.add(passKey(offer.to, offer.from));
+  if (offer.kind === 'embassy') (s.embassies ||= new Set()).add(pair);
   if (offer.kind === 'peace' && atWar(s, offer.from, offer.to)) {
     s.rel.delete(pair);
     s.truce.set(pair, s.turn + B.TRUCE_TURNS);
@@ -2084,6 +2152,7 @@ export function cmdAnswer(s, pid, offerId, accept) {
 export function cmdBreak(s, pid, other) {
   if (!myTurn(s, pid)) return 'Вы уже закончили ход';
   if (!allied(s, pid, other)) return 'Союза нет';
+  offend(s, other, pid);
   s.rel.delete(pairKey(pid, other));
   emit(s, 'broken', { from: pid, to: other });
   return null;
@@ -2133,11 +2202,14 @@ function startWar(s, pid, other) {
   // Перемирие связывает обе стороны. Союзники цели вступили бы в войну, поэтому оно действует и с ними.
   const foes = [other, ...friendsOf(s, other)], held = foes.find(foe => underTruce(s, pid, foe));
   if (held != null) return `Перемирие: ${s.players[held].realm}, ещё ходов ${truceLeft(s, pid, held)}`;
+  s.players[pid].warAt = s.turn;
   for (const foe of foes) {
+    offend(s, foe, pid);
     s.rel.set(pairKey(pid, foe), 'war');
     // С войной пропуска кончаются в обе стороны.
     s.passes.delete(passKey(pid, foe));
     s.passes.delete(passKey(foe, pid));
+    s.embassies?.delete(pairKey(pid, foe));
     emit(s, 'war', { from: pid, to: foe, ...(foe === other ? {} : { joined: other }) });
   }
   return null;
@@ -2354,7 +2426,7 @@ export function publicState(s, viewer = null) {
     legend: s.legend && legendView(s.legend), mods: s.mods,
     fallen: s.fallen, fallenTotal: s.fallen.reduce((sum, row) => sum + row.total, 0),
     players: s.players.map(p => ({
-      id: p.id, name: p.name, realm: p.realm, bot: p.bot, out: p.out, left: p.left, done: p.done, capital: p.capital, blight: !p.out && !p.horde && barren(s, p.id),
+      id: p.id, name: p.name, realm: p.realm, bot: p.bot, nature: B.NATURES[p.nature]?.name ?? null, out: p.out, left: p.left, done: p.done, capital: p.capital, blight: !p.out && !p.horde && barren(s, p.id),
       ...(p.horde ? { horde: true } : {}),
       ...(viewer == null ? {} : {
         mushrooms: p.mushrooms, burns: p.burns, gnomes: gnomesOf(s, p.id),
@@ -2388,6 +2460,8 @@ export function publicState(s, viewer = null) {
     horde: s.horde && s.horde.fallen == null ? { tile: s.horde.tile, power: s.horde.power, start: s.horde.start } : null,
     ...(s.epilogue ? { epilogue: s.epilogue } : {}),
     // Перемирия всех царств: [a, b, сколько ходов осталось]. Их видно в окне «Союзы и войны» общего экрана.
+    trade: [...(s.trade || [])].map(k => k.split(':').map(Number)),
+    embassies: [...(s.embassies || [])].map(k => k.split(':').map(Number)),
     pacts: [...s.truce].map(([k, end]) => [...k.split(':').map(Number), end - s.turn]).filter(r => r[2] > 0),
     ...(s.phase === 'over' ? { results: results(s) } : {}),
     heroes: [...s.heroes].map(id => [id, g.tiles[id].hero]),
@@ -2431,6 +2505,12 @@ export function restoreState(s, seed) {
   setDarkSeat(s.dark ?? null);
   setHordeSeat(s.hordeSeat ?? null);
   // Партия, сохранённая до нашествия Тугарина, тоже получает ход прихода орды.
+  s.trade ||= new Set();
+  s.embassies ||= new Set();
+  for (const p of s.players) {
+    p.grudges ||= {};
+    if (p.bot && !p.horde && !p.nature) p.nature = natureFor(s, p.id);
+  }
   if (s.hordeTurn == null) s.hordeTurn = Math.max(s.turn + 2, B.TUGARIN_TURN[0] + Math.floor(s.rand() * (B.TUGARIN_TURN[1] - B.TUGARIN_TURN[0] + 1)));
   return s;
 }

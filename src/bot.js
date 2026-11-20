@@ -4,9 +4,16 @@
 import { MAX_SOLDIERS, TERRAIN, barred, dist, isWater, neighbors, stepCost } from '../public/js/hex.js';
 import * as B from '../public/js/balance.js';
 import {
-  allied, allyAge, atWar, foodSpare, friendsOf, meetChance, offerChance, peerLand, powerOf, reachOf, relation, roadLand, roadNet, sharedAlly, shutOf, underTruce,
-  warSide,
+  allied, allyAge, atWar, foodSpare, foesOf, friendsOf, grudge, meetChance, offerChance, peerLand, powerOf, reachOf, relation, roadLand, roadNet, sharedAlly, shutOf,
+  hasEmbassy, tradePartners, underTruce, warSide,
 } from './game.js';
+
+const natureOf = (s, pid) => B.NATURES[s.players[pid].nature] ?? B.NATURES.builder;
+const homesOf = (s, pid) => s.map.tiles.filter(t => t.town?.owner === pid);
+// Ближе всего к своим поселениям: так бот видит, что лежит у него под боком.
+const nearHome = (s, homes, id) => homes.reduce((best, t) => Math.min(best, dist(s.map, t.id, id)), Infinity);
+// Запас кончится раньше, чем через BOT_FAMINE ходов: лишнее войско пора вести домой.
+const famine = (s, pid) => { const spare = foodSpare(s, pid); return spare < 0 && s.players[pid].mushrooms < -spare * B.BOT_FAMINE; };
 
 // Поиск пути от клетки: цена до всех клеток и откуда в них пришли.
 // Цена до чужого поселения есть, чтобы выбрать его целью, но сквозь него пути нет: туда не войти.
@@ -100,13 +107,29 @@ function considerTalks(s, pid, done) {
     noteAsk(s, key);
     return { type: 'offer', to: e.id, kind: 'peace', give: { mushrooms: giftOf(s, pid, B.BOT_PEACE_GIFT) } };
   }
+  // Посольство мирному соседу: без него торгового пути нет. Сколько посольств держать, решает нрав.
+  if (!done.has('embassy')) {
+    done.add('embassy');
+    const me = s.players[pid], kept = alive.filter(p => hasEmbassy(s, pid, p.id)).length;
+    if (me.capital != null && kept < natureOf(s, pid).trade) {
+      const next = alive.filter(p => p.capital != null && !atWar(s, pid, p.id) && !hasEmbassy(s, pid, p.id) && !grudge(s, pid, p.id)
+        && dist(s.map, me.capital, p.capital) <= B.BOT_NEAR && (p.bot || s.turn - askedAt(s, `embassy:${p.id}`) >= B.BOT_ASK_GAP))
+        .sort((a, b) => dist(s.map, me.capital, a.capital) - dist(s.map, me.capital, b.capital))[0];
+      if (next) {
+        noteAsk(s, `embassy:${next.id}`);
+        return { type: 'offer', to: next.id, kind: 'embassy', give: { mushrooms: 0 } };
+      }
+    }
+  }
   if (done.has('ally') || friendsOf(s, pid).length >= B.BOT_ALLIES) return null;
   done.add('ally');
   const mine = powerOf(s, pid), top = Math.max(0, ...alive.map(p => powerOf(s, p.id)));
+  // Угроза: враг или сильнейший, если он рядом. Далёкий силач союза не стоит.
+  const home = s.players[pid].capital, near = p => home == null || p.capital == null || dist(s.map, home, p.capital) <= B.BOT_NEAR;
   const threat = alive.filter(p => !allied(s, pid, p.id) && powerOf(s, p.id) > mine * B.BOT_THREAT
-    && (atWar(s, pid, p.id) || powerOf(s, p.id) === top)).sort((a, b) => powerOf(s, b.id) - powerOf(s, a.id))[0];
+    && (atWar(s, pid, p.id) || (powerOf(s, p.id) === top && near(p)))).sort((a, b) => powerOf(s, b.id) - powerOf(s, a.id))[0];
   if (!threat) return null;
-  const pals = alive.filter(p => p.id !== threat.id && relation(s, pid, p.id) === 'peace' && !allied(s, p.id, threat.id))
+  const pals = alive.filter(p => p.id !== threat.id && relation(s, pid, p.id) === 'peace' && !allied(s, p.id, threat.id) && !grudge(s, pid, p.id))
     .sort((a, b) => Number(atWar(s, b.id, threat.id)) - Number(atWar(s, a.id, threat.id)) || powerOf(s, b.id) - powerOf(s, a.id));
   for (const c of pals) {
     const key = `ally:${c.id}`;
@@ -117,37 +140,60 @@ function considerTalks(s, pid, done) {
   return null;
 }
 
-// Сперва ближний сосед: так война не зависит от места за столом. Когда затянулось, бот идёт и на самого слабого.
+// Война ради выгоды. С хода BOT_PEACE бот ищет цель по соседству: лагеря и остроги врага у самых своих поселений,
+// спорную грибницу, казну царства с последней столицей, обидчика. Силы он считает сторонами: у цели все её союзники,
+// у бота его союзники вполсилы (вступятся не все). Нрав решает, какой перевес нужен и сколько войн вести сразу.
+// Пока стоит Тугарин, новых войн бот не начинает: все силы на орду.
 function considerWar(s, pid) {
   if (s.turn < B.BOT_PEACE) return null;
   // На пустой желудок войну не начинают.
   if (foodSpare(s, pid) < 0 && s.players[pid].mushrooms < B.BOT_STOCK) return null;
-  const g = s.map, home = s.players[pid].capital, mine = powerOf(s, pid);
+  const g = s.map, me = s.players[pid], home = me.capital, mine = powerOf(s, pid), nature = natureOf(s, pid);
   const free = x => relation(s, pid, x) === 'peace' && ![x, ...friendsOf(s, x)].some(id => underTruce(s, pid, id)) && sharedAlly(s, pid, x) == null;
-  // Союзник воюет: бот вступается за него, если вместе они сильнее врага.
+  // Союзник воюет: бот вступается за него, если вместе они сильнее врага, а союзник один не справляется.
   for (const a of friendsOf(s, pid)) {
     if (s.players[a].out) continue;
     for (const x of s.players) {
-      if (x.out || x.id === pid || !atWar(s, a, x.id) || !free(x.id)) continue;
-      if (mine + warSide(s, a, x.id) >= warSide(s, x.id, a) * B.BOT_EDGE && mine >= B.BOT_ARMY) return { type: 'war', other: x.id };
+      if (x.out || x.horde || x.id === pid || !atWar(s, a, x.id) || !free(x.id)) continue;
+      const ours = warSide(s, a, x.id), theirs = warSide(s, x.id, a);
+      if (ours >= theirs * B.BOT_HELP) continue;
+      if (mine + ours >= theirs * B.BOT_EDGE && mine >= B.BOT_ARMY) return { type: 'war', other: x.id };
     }
   }
-  // Сосед, который уже с кем-то воюет, занят: на него идти легче.
-  const busy = id => s.players.some(o => !o.out && o.id !== id && o.id !== pid && atWar(s, id, o.id));
-  const guard = id => powerOf(s, id) * (busy(id) ? 0.7 : 1);
-  // Соседи на почти равном расстоянии идут по кругу стола: иначе все выбирали бы первое место.
-  const far = p => (home == null || p.capital == null ? g.W + g.H : Math.round(dist(g, home, p.capital) / 3))
-    + ((p.id - pid + s.players.length) % s.players.length) / 10;
-  const late = s.turn >= B.BOT_PATIENCE;
-  if (!late && s.players.some(p => p.id !== pid && !p.out && atWar(s, pid, p.id))) return null;
-  const aims = s.players.filter(p => p.id !== pid && !p.out && free(p.id))
-    .sort((a, b) => (late ? guard(a.id) - guard(b.id) : far(a) - far(b)));
-  for (const p of aims) {
-    // Сперва бот ждёт перевеса, а в затянувшейся партии идёт и на равного. Союзники врага встанут за него.
-    const foe = guard(p.id) + friendsOf(s, p.id).filter(id => !s.players[id].out).reduce((sum, id) => sum + powerOf(s, id), 0);
-    if (mine >= foe * (late ? 1 : B.BOT_EDGE) && mine >= B.BOT_ARMY) return { type: 'war', other: p.id };
+  if (mine < B.BOT_ARMY || home == null || (s.horde && s.horde.fallen == null)) return null;
+  if (s.turn - (me.warAt ?? -Infinity) < B.BOT_WAR_GAP) return null;
+  if (foesOf(s, pid).filter(id => !s.players[id].horde).length >= nature.wars) return null;
+  const busy = id => s.players.some(o => !o.out && !o.horde && o.id !== id && o.id !== pid && atWar(s, id, o.id));
+  const pals = friendsOf(s, pid).filter(id => !s.players[id].out).reduce((sum, id) => sum + powerOf(s, id), 0);
+  const homes = homesOf(s, pid);
+  let best = null, bestScore = -Infinity;
+  for (const p of s.players) {
+    if (p.id === pid || p.out || p.horde || p.capital == null || !free(p.id)) continue;
+    const fights = s.players.filter(o => !o.out && !o.horde && o.id !== p.id && atWar(s, p.id, o.id)).length;
+    if (fights >= B.BOT_PILE && !grudge(s, pid, p.id)) continue;
+    const far = dist(g, home, p.capital);
+    if (far > B.BOT_NEAR * 1.5) continue;
+    const theirs = powerOf(s, p.id) * (busy(p.id) ? nature.busy : 1)
+      + friendsOf(s, p.id).filter(id => !s.players[id].out).reduce((sum, id) => sum + powerOf(s, id), 0);
+    const odds = (mine + pals / 2) / Math.max(1, theirs);
+    if (odds < nature.edge) continue;
+    // Добыча у своих стен: лагеря, остроги, спорная грибница, казна последней столицы.
+    let value = grudge(s, pid, p.id) ? B.GRUDGE_WAR : 0, towns = 0;
+    for (const t of g.tiles) {
+      if (t.town?.owner === p.id) towns++;
+      const near = (t.patch?.camp?.owner === p.id || t.town?.owner === p.id) && nearHome(s, homes, t.id) <= B.BOT_REACH;
+      if (!near) continue;
+      if (t.patch?.camp) value += t.patch.disputed ? 20 : 10;
+      else value += t.town.type === 'ostrog' ? 8 : 4;
+    }
+    if (towns === 1) value += Math.floor(p.mushrooms / 10);
+    // С торговым партнёром воевать накладно: путь порвётся.
+    if (tradePartners(s, pid).includes(p.id)) value -= B.BOT_TRADE_KEEP * (nature.trade + 1);
+    if (value < B.BOT_WAR_VALUE) continue;
+    const score = value + (B.BOT_NEAR - far) + (odds - nature.edge) * 20;
+    if (score > bestScore) { best = p; bestScore = score; }
   }
-  return null;
+  return best ? { type: 'war', other: best.id } : null;
 }
 
 const campedAndLinked = (s, pid, net) => s.map.tiles.some(t => t.patch?.camp?.owner === pid && net.has(t.id));
@@ -210,6 +256,14 @@ function economy(s, pid, march) {
   const thin = thinOstrog(s, pid);
   if (thin) return thin;
 
+  // Запаса на голод не хватит: отряд, что стоит в своём поселении без врагов рядом, расходится по домам.
+  if (famine(s, pid)) {
+    const calm = u => !s.units.some(e => atWar(s, e.owner, pid) && dist(g, e.tile, u.tile) <= B.BOT_DEFEND);
+    const room = t => t.town?.owner === pid && B.CAP[t.town.type] > t.town.gnomes;
+    const u = units.find(x => room(g.tiles[x.tile]) && !s.orders.some(o => o.unit === x.id) && calm(x));
+    if (u) return { type: 'garrison', unit: u.id };
+  }
+
   for (const u of march ? units : []) {
     const t = g.tiles[u.tile];
     if (!t.patch || t.patch.camp || peerLand(s, pid, t) || s.orders.some(o => o.unit === u.id)) continue;
@@ -243,8 +297,11 @@ function economy(s, pid, march) {
     }
   }
 
+  const trade = s.turn >= B.BOT_EXPAND ? tradeRoad(s, pid) : null;
+  if (trade != null) return { type: 'road', tile: trade };
+
   // С хода расширения, когда лагерь уже есть, лишний отряд становится острогом: она кормит себя и растит новых гномов.
-  if (march && s.turn >= B.BOT_EXPAND && s.players[pid].tally.built < B.BOT_BUILD && units.length > B.BOT_KEEP && canSpend(s, pid, B.OSTROG_COST) && g.tiles.some(t => t.patch?.camp?.owner === pid)) {
+  if (march && s.turn >= B.BOT_EXPAND && s.players[pid].tally.built < natureOf(s, pid).build && units.length > B.BOT_KEEP && canSpend(s, pid, B.OSTROG_COST) && g.tiles.some(t => t.patch?.camp?.owner === pid)) {
     const u = units.find(x => x.n >= B.OSTROG_MIN && !s.orders.some(o => o.unit === x.id) && ostrogSpot(s, pid, g.tiles[x.tile]));
     if (u) return { type: 'ostrog', unit: u.id };
   }
@@ -262,6 +319,67 @@ function economy(s, pid, march) {
   // Отряд ест больше гномов: его кормит излишек сбора или большой запас.
   const count = Math.min(B.BOT_SQUAD, spareOf(camp));
   return canFeed(s, pid, count) ? { type: 'mobilize', tile: camp.id, count } : null;
+}
+
+// Дорожная сеть царства по его собственной земле: столица, поселения и дороги, связанные с ней.
+function ownRoads(s, pid) {
+  const g = s.map, cap = s.players[pid].capital, set = new Set();
+  if (cap == null) return set;
+  const queue = [cap];
+  set.add(cap);
+  for (let i = 0; i < queue.length; i++) {
+    for (const n of neighbors(g, queue[i])) {
+      const t = g.tiles[n];
+      if (set.has(n) || t.terr !== pid || !(t.road || t.town?.owner === pid)) continue;
+      set.add(n);
+      queue.push(n);
+    }
+  }
+  return set;
+}
+
+// Торговый путь: бот ведёт дорогу по своей земле к соседу, с которым не воюет. Сперва туда, где сеть соседа
+// уже подошла к его земле, иначе к своей границе напротив столицы соседа: оттуда сосед поведёт дорогу навстречу.
+// Сколько путей искать, решает нрав. Возвращает клетку для следующего куска дороги.
+function tradeRoad(s, pid) {
+  const g = s.map, me = s.players[pid];
+  if (me.capital == null || !canSpend(s, pid, B.ROAD_COST, B.BOT_STOCK + 10)) return null;
+  const linked = tradePartners(s, pid);
+  if (linked.length >= natureOf(s, pid).trade) return null;
+  const mine = ownRoads(s, pid);
+  const cands = s.players.filter(p => p.id !== pid && !p.out && !p.horde && p.capital != null && !linked.includes(p.id)
+    && !atWar(s, pid, p.id) && hasEmbassy(s, pid, p.id) && !grudge(s, pid, p.id) && dist(g, me.capital, p.capital) <= B.BOT_NEAR)
+    .sort((a, b) => dist(g, me.capital, a.capital) - dist(g, me.capital, b.capital));
+  const land = t => t.terr === pid && !isWater(g, t.id) && TERRAIN[t.t].cost != null && !t.patch?.camp && (!t.town || t.town.owner === pid);
+  for (const p of cands) {
+    const theirs = ownRoads(s, p.id);
+    const touches = (id, test) => neighbors(g, id).some(test);
+    // Своя сеть уже стоит у его земли: ждём, когда он подведёт свою.
+    const meetsTheirs = id => touches(id, n => theirs.has(n));
+    if ([...mine].some(meetsTheirs)) continue;
+    const atBorder = id => touches(id, n => g.tiles[n].terr === p.id);
+    const back = new Map([...mine].map(id => [id, -1])), queue = [...mine];
+    let goal = null, fallback = null, fallbackScore = Infinity;
+    for (let i = 0; i < queue.length && goal == null; i++) {
+      for (const b of neighbors(g, queue[i])) {
+        if (back.has(b) || !land(g.tiles[b])) continue;
+        back.set(b, queue[i]);
+        queue.push(b);
+        if (meetsTheirs(b)) { goal = b; break; }
+        if (atBorder(b)) {
+          const score = dist(g, b, p.capital) * 100 + i;
+          if (score < fallbackScore) { fallback = b; fallbackScore = score; }
+        }
+      }
+    }
+    const aim = goal ?? ([...mine].some(atBorder) ? null : fallback);
+    if (aim == null) continue;
+    let at = aim;
+    while (back.get(at) !== -1 && !mine.has(back.get(at))) at = back.get(at);
+    const t = g.tiles[at];
+    if (!t.road && !t.town && !t.patch?.camp) return at;
+  }
+  return null;
 }
 
 // Поселение врага: его не занять, а только разрушить приказом с соседней клетки.
@@ -330,8 +448,19 @@ function chooseTarget(s, pid, path, claimed, u) {
   if (drill) {
     for (const m of s.units) if (m.owner === pid && m !== u && m.n + u.n <= MAX_SOLDIERS) rate(m.tile, 14, true);
   }
+  const homes = homesOf(s, pid);
+  // Враг у своих стен: боевые отряды идут его бить прежде любого похода.
+  if (fighter) {
+    for (const e of s.units) {
+      if (e.owner !== pid && atWar(s, pid, e.owner) && nearHome(s, homes, e.tile) <= B.BOT_DEFEND) rate(e.tile, B.BOT_ASSAULT + 20, true);
+    }
+  }
   // Пришла орда Тугарина: кто её разобьёт, тот победит. Боевые отряды идут к ней все вместе.
-  if (fighter && s.horde && s.horde.fallen == null) rate(s.horde.tile, B.BOT_ASSAULT + 15, true);
+  // Слабое царство бережёт войско: идёт на Тугарина, только когда он у его поселений.
+  const hordeNear = s.horde && nearHome(s, homes, s.horde.tile) <= B.BOT_REACH;
+  if (fighter && s.horde && s.horde.fallen == null && (armyOf(s, pid) >= s.horde.power || hordeNear)) rate(s.horde.tile, B.BOT_ASSAULT + 15, true);
+  // Голод близко: отряды без дела идут в свои поселения, там их распустят по домам.
+  if (!fighter && famine(s, pid)) for (const t of homes) rate(t.id, 20);
   // Царство падает, только когда не осталось ни поселений, ни отрядов: уцелевших надо догнать.
   if (fighter) {
     for (const e of s.units) {
@@ -339,6 +468,7 @@ function chooseTarget(s, pid, path, claimed, u) {
     }
   }
   // Строевому отряду вне своей земли делать нечего: он идёт на ближайшую свою клетку, где нет своих.
+  if (top < 0 && fighter && famine(s, pid) && !foesOf(s, pid).length) for (const t of homes) rate(t.id, 0);
   if (top < 0 && drill && g.tiles[u.tile].terr !== pid) {
     const taken = new Set(s.units.filter(m => m.owner === pid).map(m => m.tile));
     for (const t of g.tiles) if (t.terr === pid && !isWater(g, t.id) && !t.town && !taken.has(t.id)) rate(t.id, 0);
